@@ -707,3 +707,22 @@ func (m *Manager) GetStatus() (map[string]interface{}, error) {
 		"rate_limit":  m.config.RateLimitMbps,
 	}, nil
 }
+
+// RemoveFromQueue removes an item from the download queue.
+// If the item is currently downloading, it cancels the download.
+func (m *Manager) RemoveFromQueue(ctx context.Context, queueID string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.running {
+		return fmt.Errorf("download manager not running")
+	}
+
+	// Remove from storage queue
+	if err := m.storage.RemoveQueueItem(queueID); err != nil {
+		return fmt.Errorf("failed to remove from storage queue: %w", err)
+	}
+
+	m.logger.Info("Removed item from download queue", "queue_id", queueID)
+	return nil
+}

@@ -46,8 +46,10 @@ type DownloadRecord struct {
 	ID           string    `json:"id"`
 	MediaType    string    `json:"media_type"`    // movie, episode, series
 	JellyfinID   string    `json:"jellyfin_id"`
+	Title        string    `json:"title"`         // Media title for display
 	LocalPath    string    `json:"local_path"`
 	Size         int64     `json:"size"`
+	ContentType  string    `json:"content_type"`  // MIME type for HTTP serving
 	DownloadedAt time.Time `json:"downloaded_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 	Priority     int       `json:"priority"`
@@ -690,4 +692,44 @@ func (m *Manager) GetCacheStats() (*CacheStats, error) {
 	}
 	
 	return &stats, nil
+}
+
+// GetCachedItemsCount returns the total count of cached items, optionally filtered by media type.
+// Used for pagination to provide accurate total counts.
+func (m *Manager) GetCachedItemsCount(mediaType string) (int, error) {
+	var count int
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketDownloads)
+		if bucket == nil {
+			return nil // No downloads bucket means 0 items
+		}
+		
+		if mediaType == "" {
+			// Count all items
+			count = bucket.Stats().KeyN
+			return nil
+		}
+		
+		// Count items matching media type
+		c := bucket.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			var record DownloadRecord
+			if err := json.Unmarshal(c.Get(), &record); err != nil {
+				continue // Skip invalid records
+			}
+			
+			if record.MediaType == mediaType {
+				count++
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return 0, fmt.Errorf("failed to get cached items count: %w", err)
+	}
+	
+	return count, nil
 }

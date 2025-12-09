@@ -624,3 +624,9 @@ func (p *Predictor) filterPredictions(predictions []PredictionResult) []Predicti
 
 	return filtered
 }
+
+// GetLastSyncTime returns the timestamp of the last successful sync operation.
+// Used by the status API to provide accurate sync timing information.
+func (p *Predictor) GetLastSyncTime() time.Time {
+	return p.lastSync
+}

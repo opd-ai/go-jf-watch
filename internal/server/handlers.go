@@ -82,13 +82,13 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 
 	status := SystemStatus{
 		Status:      "running",
-		Version:     "1.0.0", // TODO: Get from build info
+		Version:     s.version,
 		Uptime:      formatDuration(uptime),
 		CacheSize:   cacheStats.TotalSizeBytes,
 		CacheItems:  cacheStats.TotalItems,
 		QueueLength: queueStats.QueueSize,
 		ActiveJobs:  queueStats.ActiveDownloads,
-		LastSync:    time.Now().Add(-30 * time.Minute), // TODO: Get from sync manager
+		LastSync:    s.predictor.GetLastSyncTime(),
 	}
 
 	s.writeJSONResponse(w, http.StatusOK, APIResponse{
@@ -139,11 +139,18 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get total count for pagination
+	totalCount, err := s.storage.GetCachedItemsCount(mediaType)
+	if err != nil {
+		m.logger.Warn("Failed to get total items count", "error", err)
+		totalCount = len(libraryItems) // Fallback to current page count
+	}
+
 	response := map[string]interface{}{
 		"items":       libraryItems,
 		"page":        page,
 		"limit":       limit,
-		"total_items": len(libraryItems), // TODO: Get actual total count
+		"total_items": totalCount,
 	}
 
 	s.writeJSONResponse(w, http.StatusOK, APIResponse{
@@ -168,7 +175,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		queueItems = append(queueItems, QueueItem{
 			ID:       item.ID,
 			MediaID:  item.MediaID,
-			Title:    getMediaTitle(item.MediaID), // Helper function to get title
+			Title:    s.getMediaTitle(item.MediaID), // Helper function to get title
 			Priority: item.Priority,
 			Status:   item.Status,
 			Progress: item.Progress,
@@ -219,7 +226,7 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	queueItem := QueueItem{
 		ID:       fmt.Sprintf("%s-%d", req.MediaID, time.Now().Unix()),
 		MediaID:  req.MediaID,
-		Title:    getMediaTitle(req.MediaID),
+		Title:    s.getMediaTitle(req.MediaID),
 		Priority: req.Priority,
 		Status:   "queued",
 		Progress: 0,
@@ -242,8 +249,15 @@ func (s *Server) handleQueueRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Remove from download manager queue
-	s.logger.Info("Removing item from download queue", "queue_id", queueID)
+	// Remove from download manager queue
+	ctx := r.Context()
+	if err := s.downloadManager.RemoveFromQueue(ctx, queueID); err != nil {
+		s.logger.Error("Failed to remove item from queue", "queue_id", queueID, "error", err)
+		s.writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove item from queue", err)
+		return
+	}
+
+	s.logger.Info("Removed item from download queue", "queue_id", queueID)
 
 	s.writeJSONResponse(w, http.StatusOK, APIResponse{
 		Success: true,
@@ -331,9 +345,15 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, statusCode int, messa
 // Helper functions
 
 // getMediaTitle retrieves the title for a media ID from storage or jellyfin
-func getMediaTitle(mediaID string) string {
-	// TODO: Query storage or jellyfin for actual title
-	// For now, return a formatted media ID
+func (s *Server) getMediaTitle(mediaID string) string {
+	// Try to get title from cached metadata first
+	if item, err := s.storage.GetDownload(mediaID); err == nil {
+		if item.Title != "" {
+			return item.Title
+		}
+	}
+
+	// Fallback to formatted media ID if title not found
 	return "Media Item " + mediaID
 }
 

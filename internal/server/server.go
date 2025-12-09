@@ -23,7 +23,7 @@ import (
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
 
-// Server represents the HTTP server for go-jf-watch.
+	// Server represents the HTTP server for go-jf-watch.
 // It provides REST API endpoints, video streaming, WebSocket connections
 // for real-time download progress updates, and embedded web UI.
 type Server struct {
@@ -32,19 +32,19 @@ type Server struct {
 	storage         *storage.Manager
 	downloadManager *downloader.Manager
 	jellyfinClient  *jellyfin.Client
+	predictor       *downloader.Predictor
 	ui              *ui.UI
 	httpServer      *http.Server
 	router          chi.Router
 	startTime       time.Time
-	
-	// WebSocket client management
+	version         string	// WebSocket client management
 	wsClients map[interface{}]bool
 	wsMutex   sync.RWMutex
 }
 
 // New creates a new HTTP server instance with the provided configuration.
 // The server is configured with middleware for logging, CORS, and request recovery.
-func New(cfg *config.ServerConfig, storage *storage.Manager, downloadManager *downloader.Manager, jellyfinClient *jellyfin.Client, logger *slog.Logger, version string) (*Server, error) {
+func New(cfg *config.ServerConfig, storage *storage.Manager, downloadManager *downloader.Manager, jellyfinClient *jellyfin.Client, predictor *downloader.Predictor, logger *slog.Logger, version string) (*Server, error) {
 	// Initialize embedded UI
 	uiHandler, err := ui.New(version)
 	if err != nil {
@@ -57,9 +57,11 @@ func New(cfg *config.ServerConfig, storage *storage.Manager, downloadManager *do
 		storage:         storage,
 		downloadManager: downloadManager,
 		jellyfinClient:  jellyfinClient,
+		predictor:       predictor,
 		ui:              uiHandler,
 		startTime:       time.Now(),
-	s.wsClients:       make(map[interface{}]bool),
+		version:         version,
+		wsClients:       make(map[interface{}]bool),
 	}
 
 	// Create router with middleware
