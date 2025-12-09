@@ -201,20 +201,35 @@ func (c *CacheManager) GetCacheEntries() ([]*CacheEntry, error) {
 }
 
 // isProtectedFromEviction checks if an item should be protected from eviction.
-// Protected items include currently downloading and recently accessed content.
+// Protected items include currently downloading, currently playing, and recently accessed content.
 func (c *CacheManager) isProtectedFromEviction(jellyfinID string) bool {
 	// Check if item is currently in download queue
 	queueItems, err := c.storage.GetQueueItems("downloading")
 	if err == nil {
 		for _, item := range queueItems {
 			if item.MediaID == jellyfinID {
-				return true
+				return true // Protected: currently downloading
 			}
 		}
 	}
 
-	// Protect recently accessed items (within 24 hours)
-	// This would typically be determined by playback tracking
+	// Check if item is currently being played (from playback sessions)
+	// Protect any media accessed in the last 30 minutes (active playback window)
+	record, err := c.storage.GetDownloadRecord("", jellyfinID)
+	if err == nil && time.Since(record.LastAccessed) < 30*time.Minute {
+		return true // Protected: recently accessed (likely playing)
+	}
+
+	// Also protect items with Priority 0 in queue (currently playing content)
+	queueItems, err = c.storage.GetQueueItems("queued")
+	if err == nil {
+		for _, item := range queueItems {
+			if item.MediaID == jellyfinID && item.Priority == 0 {
+				return true // Protected: Priority 0 (currently playing)
+			}
+		}
+	}
+
 	return false
 }
 

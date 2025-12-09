@@ -165,7 +165,7 @@ func applyDefaults(config *Config) {
 		config.Download.AutoDownloadCount = 2
 	}
 	if config.Download.RetryAttempts == 0 {
-		config.Download.RetryAttempts = 6 // Matches documented pattern: 1s, 2s, 4s, 8s, 16s, 30s
+		config.Download.RetryAttempts = 6 // 6 retries (7 total attempts): 1s±25%, 2s±25%, 4s±25%, 8s±25%, 16s±25%, 30s±25%
 	}
 	if config.Download.RetryDelay == 0 {
 		config.Download.RetryDelay = 1 * time.Second

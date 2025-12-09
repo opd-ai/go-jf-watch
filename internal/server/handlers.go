@@ -206,8 +206,9 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set default priority if not specified
+	// Priority 3 = New content matching preferences (documented default for manual requests)
 	if req.Priority == 0 {
-		req.Priority = 5 // Default to manual priority
+		req.Priority = 3
 	}
 
 	// Add to download manager queue
@@ -222,9 +223,11 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success with basic item info
+	// Return success with queue item info
+	// Queue ID format: {mediaID}-{unix_timestamp} for DELETE operations
+	queueID := fmt.Sprintf("%s-%d", req.MediaID, time.Now().Unix())
 	queueItem := QueueItem{
-		ID:       fmt.Sprintf("%s-%d", req.MediaID, time.Now().Unix()),
+		ID:       queueID,
 		MediaID:  req.MediaID,
 		Title:    s.getMediaTitle(req.MediaID),
 		Priority: req.Priority,
@@ -236,7 +239,7 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONResponse(w, http.StatusCreated, APIResponse{
 		Success: true,
 		Data:    queueItem,
-		Message: "Item added to download queue",
+		Message: fmt.Sprintf("Item added to download queue. Use queue ID '%s' for DELETE operations.", queueID),
 	})
 }
 

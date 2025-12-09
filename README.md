@@ -206,9 +206,9 @@ ui:
 GET    /                          # Web UI
 GET    /api/library               # Cached library items  
 GET    /api/queue                 # Download queue status
-POST   /api/queue/add             # Add item to download queue
-DELETE /api/queue/{id}            # Remove from queue
-GET    /stream/{id}               # Local video streaming
+POST   /api/queue/add             # Add item to download queue (priority 0-4, default 3)
+DELETE /api/queue/{id}            # Remove from queue (id format: {mediaID}-{timestamp})
+GET    /stream/{id}               # Local video streaming (triggers Priority 0 auto-download)
 GET    /api/status                # System status and stats
 ```
 

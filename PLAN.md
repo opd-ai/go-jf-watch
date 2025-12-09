@@ -291,11 +291,12 @@ limiter := rate.NewLimiter(rate.Limit(maxMBps*1024*1024/8), burstSize)
 - **Network Detection**: Automatic throttling on metered connections
 
 **Retry Logic**:
-- Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
+- Exponential backoff with ±25% jitter: 1s±25%, 2s±25%, 4s±25%, 8s±25%, 16s±25%, 30s±25%
+- 6 retries (7 total attempts) matching documented retry pattern
 - Different strategies for different error types:
-  - Network errors: Full retry with backoff
+  - Network errors: Full retry with backoff and jitter
   - 404/403 errors: Mark as failed, don't retry
-  - Rate limiting: Exponential backoff with jitter
+  - Rate limiting: Exponential backoff with jitter to prevent thundering herd
 
 ### 5.4 Storage Management & Eviction
 

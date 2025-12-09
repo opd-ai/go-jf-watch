@@ -645,23 +645,27 @@ func (m *Manager) handleResult(result *DownloadResult) {
 		}
 
 		// Update queue item with error and potentially retry
-		if job.RetryCount < m.config.RetryAttempts {
+		// Use <= to allow 6 retries (attempts 1-6) matching documented pattern: 1s, 2s, 4s, 8s, 16s, 30s
+		if job.RetryCount <= m.config.RetryAttempts {
 			// Schedule retry with exponential backoff and jitter
 			job.RetryCount++
-			// Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+			// Exponential backoff base pattern: 1s, 2s, 4s, 8s, 16s, 30s (capped)
+			// Actual delays include ±25% jitter: 0.75s-1.25s, 1.5s-2.5s, 3s-5s, 6s-10s, 12s-20s, 22.5s-37.5s
 			retryDelay := m.config.RetryDelay * time.Duration(1<<uint(job.RetryCount-1))
 			if retryDelay > 30*time.Second {
 				retryDelay = 30 * time.Second
 			}
 
 			// Add jitter: ±25% randomization to prevent thundering herd
+			// Results in delay between 75% and 125% of base backoff value
 			jitter := time.Duration(float64(retryDelay) * (0.75 + 0.5*rand.Float64()))
 			retryDelay = jitter
 
 			m.logger.Info("Scheduling download retry with exponential backoff and jitter",
 				"job_id", job.ID,
 				"retry_count", job.RetryCount,
-				"delay", retryDelay)
+				"delay", retryDelay,
+				"base_delay_pattern", "1s, 2s, 4s, 8s, 16s, 30s with ±25% jitter")
 
 			// Exponential backoff retry scheduling implemented
 			// For now, just update the queue item status

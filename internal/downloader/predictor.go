@@ -147,6 +147,26 @@ func (p *Predictor) OnPlaybackStart(ctx context.Context, mediaID string) error {
 	// Add to viewing history for future analysis
 	p.viewingHistory = append(p.viewingHistory, session)
 
+	// Priority 0: Download currently playing content immediately (if not already cached)
+	// This provides instant playback on subsequent access
+	if p.downloadManager != nil {
+		cached, err := p.storage.IsMediaCached(mediaID)
+		if err != nil || !cached {
+			p.logger.Info("Queueing currently playing content for immediate download",
+				"media_id", mediaID,
+				"priority", 0)
+
+			if err := p.downloadManager.QueueDownload(ctx, mediaID, 0); err != nil {
+				p.logger.Error("Failed to queue current content download",
+					"media_id", mediaID,
+					"error", err)
+			} else {
+				p.logger.Info("Successfully queued Priority 0 download for currently playing content",
+					"media_id", mediaID)
+			}
+		}
+	}
+
 	// If this is a TV series episode, predict next episode(s)
 	if session.MediaType == "episode" && session.SeriesID != "" {
 		return p.predictNextEpisodes(ctx, session.SeriesID, session.Season, session.Episode)
