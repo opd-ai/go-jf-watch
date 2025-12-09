@@ -10,7 +10,6 @@ package storage
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,8 +17,8 @@ import (
 	"sort"
 	"time"
 
-	"go.etcd.io/bbolt"
 	"github.com/opd-ai/go-jf-watch/pkg/config"
+	"go.etcd.io/bbolt"
 )
 
 // Bucket names following the design specified in PLAN.md
@@ -44,12 +43,13 @@ type Manager struct {
 // Key pattern: {media-type}:{jellyfin-id}
 type DownloadRecord struct {
 	ID           string    `json:"id"`
-	MediaType    string    `json:"media_type"`    // movie, episode, series
+	MediaType    string    `json:"media_type"` // movie, episode, series
 	JellyfinID   string    `json:"jellyfin_id"`
-	Title        string    `json:"title"`         // Media title for display
+	Title        string    `json:"title"` // Media title for display
 	LocalPath    string    `json:"local_path"`
 	Size         int64     `json:"size"`
-	ContentType  string    `json:"content_type"`  // MIME type for HTTP serving
+	ContentType  string    `json:"content_type"` // MIME type for HTTP serving
+	Status       string    `json:"status"`       // completed, failed, partial
 	DownloadedAt time.Time `json:"downloaded_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 	Priority     int       `json:"priority"`
@@ -65,8 +65,8 @@ type QueueItem struct {
 	URL          string    `json:"url"`
 	LocalPath    string    `json:"local_path"`
 	Size         int64     `json:"size"`
-	Status       string    `json:"status"`        // pending, downloading, completed, failed
-	Progress     float64   `json:"progress"`      // 0.0 to 1.0
+	Status       string    `json:"status"`   // pending, downloading, completed, failed
+	Progress     float64   `json:"progress"` // 0.0 to 1.0
 	CreatedAt    time.Time `json:"created_at"`
 	StartedAt    time.Time `json:"started_at,omitempty"`
 	CompletedAt  time.Time `json:"completed_at,omitempty"`
@@ -77,29 +77,29 @@ type QueueItem struct {
 // MediaMetadata represents cached Jellyfin media metadata.
 // Key pattern: meta:{jellyfin-id}
 type MediaMetadata struct {
-	ID           string                 `json:"id"`
-	JellyfinID   string                 `json:"jellyfin_id"`
-	Name         string                 `json:"name"`
-	Type         string                 `json:"type"`
-	SeriesID     string                 `json:"series_id,omitempty"`
-	SeasonNumber int                    `json:"season_number,omitempty"`
-	EpisodeNumber int                   `json:"episode_number,omitempty"`
-	Overview     string                 `json:"overview,omitempty"`
-	Genres       []string               `json:"genres,omitempty"`
-	Size         int64                  `json:"size"`
-	Container    string                 `json:"container"`
-	LastSynced   time.Time              `json:"last_synced"`
-	ExtraData    map[string]interface{} `json:"extra_data,omitempty"`
+	ID            string                 `json:"id"`
+	JellyfinID    string                 `json:"jellyfin_id"`
+	Name          string                 `json:"name"`
+	Type          string                 `json:"type"`
+	SeriesID      string                 `json:"series_id,omitempty"`
+	SeasonNumber  int                    `json:"season_number,omitempty"`
+	EpisodeNumber int                    `json:"episode_number,omitempty"`
+	Overview      string                 `json:"overview,omitempty"`
+	Genres        []string               `json:"genres,omitempty"`
+	Size          int64                  `json:"size"`
+	Container     string                 `json:"container"`
+	LastSynced    time.Time              `json:"last_synced"`
+	ExtraData     map[string]interface{} `json:"extra_data,omitempty"`
 }
 
 // StorageStats represents usage statistics for monitoring and capacity management.
 type StorageStats struct {
-	TotalDownloads   int           `json:"total_downloads"`
-	TotalSize        int64         `json:"total_size_bytes"`
-	DownloadsByType  map[string]int `json:"downloads_by_type"`
-	OldestDownload   time.Time     `json:"oldest_download"`
-	NewestDownload   time.Time     `json:"newest_download"`
-	LastUpdated      time.Time     `json:"last_updated"`
+	TotalDownloads  int            `json:"total_downloads"`
+	TotalSize       int64          `json:"total_size_bytes"`
+	DownloadsByType map[string]int `json:"downloads_by_type"`
+	OldestDownload  time.Time      `json:"oldest_download"`
+	NewestDownload  time.Time      `json:"newest_download"`
+	LastUpdated     time.Time      `json:"last_updated"`
 }
 
 // CacheStats represents cache statistics for system monitoring.
@@ -107,8 +107,8 @@ type CacheStats struct {
 	TotalSizeBytes int64     `json:"total_size_bytes"`
 	TotalItems     int       `json:"total_items"`
 	LastSync       time.Time `json:"last_sync"`
-	Size           int64     `json:"size"`           // Alias for TotalSizeBytes
-	ItemCount      int       `json:"item_count"`     // Alias for TotalItems
+	Size           int64     `json:"size"`       // Alias for TotalSizeBytes
+	ItemCount      int       `json:"item_count"` // Alias for TotalItems
 }
 
 // EpisodeInfo contains basic information about a TV episode.
@@ -124,24 +124,39 @@ type EpisodeInfo struct {
 // This would be populated by syncing with Jellyfin playback activity.
 type ViewingSession struct {
 	MediaID      string    `json:"media_id"`
-	MediaType    string    `json:"media_type"`    // "movie", "episode"
+	MediaType    string    `json:"media_type"` // "movie", "episode"
 	SeriesID     string    `json:"series_id,omitempty"`
 	Season       int       `json:"season,omitempty"`
 	Episode      int       `json:"episode,omitempty"`
 	StartTime    time.Time `json:"start_time"`
 	EndTime      time.Time `json:"end_time"`
-	Duration     int64     `json:"duration"`      // Total duration in seconds
-	WatchedTime  int64     `json:"watched_time"`  // Time actually watched
-	Completed    bool      `json:"completed"`     // Watched >85% of content
+	Duration     int64     `json:"duration"`     // Total duration in seconds
+	WatchedTime  int64     `json:"watched_time"` // Time actually watched
+	Completed    bool      `json:"completed"`    // Watched >85% of content
 	DeviceType   string    `json:"device_type,omitempty"`
 	QualityLevel string    `json:"quality_level,omitempty"`
+}
+
+// CachedItem represents a cached media item for API responses.
+// Used by GetCachedItems for library listing with pagination.
+type CachedItem struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	Path          string    `json:"path"`
+	Size          int64     `json:"size"`
+	DateAdded     time.Time `json:"date_added"`
+	SeriesID      string    `json:"series_id,omitempty"`
+	SeriesName    string    `json:"series_name,omitempty"`
+	SeasonNumber  int       `json:"season_number,omitempty"`
+	EpisodeNumber int       `json:"episode_number,omitempty"`
 }
 
 // NewManager creates a new storage manager with the given configuration.
 // It initializes the BoltDB database and creates necessary buckets.
 func NewManager(cfg *config.CacheConfig, logger *slog.Logger) (*Manager, error) {
 	dbPath := filepath.Join(cfg.Directory, "go-jf-watch.db")
-	
+
 	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{
 		Timeout: 1 * time.Second,
 	})
@@ -161,7 +176,7 @@ func NewManager(cfg *config.CacheConfig, logger *slog.Logger) (*Manager, error) 
 		return nil, fmt.Errorf("failed to initialize buckets: %w", err)
 	}
 
-	logger.Info("Storage manager initialized", 
+	logger.Info("Storage manager initialized",
 		"db_path", dbPath,
 		"metadata_store", cfg.MetadataStore)
 
@@ -202,10 +217,10 @@ func (m *Manager) AddDownloadRecord(record *DownloadRecord) error {
 	}
 
 	key := fmt.Sprintf("%s:%s", record.MediaType, record.JellyfinID)
-	
+
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
-		
+
 		data, err := json.Marshal(record)
 		if err != nil {
 			return fmt.Errorf("failed to marshal download record: %w", err)
@@ -227,12 +242,12 @@ func (m *Manager) AddDownloadRecord(record *DownloadRecord) error {
 // GetDownloadRecord retrieves a download record by media type and Jellyfin ID.
 func (m *Manager) GetDownloadRecord(mediaType, jellyfinID string) (*DownloadRecord, error) {
 	key := fmt.Sprintf("%s:%s", mediaType, jellyfinID)
-	
+
 	var record DownloadRecord
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
 		data := bucket.Get([]byte(key))
-		
+
 		if data == nil {
 			return fmt.Errorf("download record not found")
 		}
@@ -251,10 +266,10 @@ func (m *Manager) GetDownloadRecord(mediaType, jellyfinID string) (*DownloadReco
 // Searches across all media types to find the matching record.
 func (m *Manager) GetDownload(mediaID string) (*DownloadRecord, error) {
 	var record *DownloadRecord
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
-		
+
 		// Search through all records to find matching JellyfinID
 		c := bucket.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -265,20 +280,20 @@ func (m *Manager) GetDownload(mediaID string) (*DownloadRecord, error) {
 					"error", err)
 				continue
 			}
-			
+
 			if rec.JellyfinID == mediaID {
 				record = &rec
 				return nil
 			}
 		}
-		
+
 		return fmt.Errorf("download record not found for media ID: %s", mediaID)
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return record, nil
 }
 
@@ -288,7 +303,7 @@ func (m *Manager) ListDownloadRecords(mediaType string) ([]*DownloadRecord, erro
 
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
-		
+
 		return bucket.ForEach(func(k, v []byte) error {
 			// Filter by media type if specified
 			if mediaType != "" {
@@ -322,10 +337,10 @@ func (m *Manager) AddQueueItem(item *QueueItem) error {
 
 	// Key pattern: {priority}:{timestamp}:{id} for efficient priority ordering
 	key := fmt.Sprintf("%03d:%d:%s", item.Priority, item.CreatedAt.Unix(), item.ID)
-	
+
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
-		
+
 		data, err := json.Marshal(item)
 		if err != nil {
 			return fmt.Errorf("failed to marshal queue item: %w", err)
@@ -350,7 +365,7 @@ func (m *Manager) GetQueueItems(status string) ([]*QueueItem, error) {
 
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
-		
+
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			var item QueueItem
@@ -379,7 +394,7 @@ func (m *Manager) GetQueueItems(status string) ([]*QueueItem, error) {
 func (m *Manager) UpdateQueueItemStatus(itemID string, status string, progress float64, errorMsg string) error {
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
-		
+
 		// Find the item by scanning for the ID in the key
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
@@ -393,7 +408,7 @@ func (m *Manager) UpdateQueueItemStatus(itemID string, status string, progress f
 				item.Status = status
 				item.Progress = progress
 				item.ErrorMessage = errorMsg
-				
+
 				if status == "downloading" && item.StartedAt.IsZero() {
 					item.StartedAt = time.Now()
 				}
@@ -418,7 +433,7 @@ func (m *Manager) UpdateQueueItemStatus(itemID string, status string, progress f
 func (m *Manager) RemoveQueueItem(itemID string) error {
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
-		
+
 		// Find and delete the item by scanning for the ID in the key
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
@@ -443,10 +458,10 @@ func (m *Manager) AddMediaMetadata(metadata *MediaMetadata) error {
 	}
 
 	key := fmt.Sprintf("meta:%s", metadata.JellyfinID)
-	
+
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketMetadata)
-		
+
 		data, err := json.Marshal(metadata)
 		if err != nil {
 			return fmt.Errorf("failed to marshal media metadata: %w", err)
@@ -465,7 +480,7 @@ func (m *Manager) GetStorageStats() (*StorageStats, error) {
 
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
-		
+
 		return bucket.ForEach(func(k, v []byte) error {
 			var record DownloadRecord
 			if err := json.Unmarshal(v, &record); err != nil {
@@ -494,7 +509,7 @@ func (m *Manager) GetStorageStats() (*StorageStats, error) {
 // Used by the predictor to get series/episode information for predictions.
 func (m *Manager) GetMediaMetadata(mediaID string) (*MediaMetadata, error) {
 	var metadata MediaMetadata
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketMetadata)
 		if bucket == nil {
@@ -522,7 +537,7 @@ func (m *Manager) GetMediaMetadata(mediaID string) (*MediaMetadata, error) {
 // Used by predictor to find next episodes in sequence.
 func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo, error) {
 	var episodes []EpisodeInfo
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketMetadata)
 		if bucket == nil {
@@ -532,7 +547,7 @@ func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo,
 		// Iterate through metadata to find episodes of this series/season
 		cursor := bucket.Cursor()
 		prefix := []byte("meta:")
-		
+
 		for k, v := cursor.Seek(prefix); k != nil && len(k) >= len(prefix); k, v = cursor.Next() {
 			if !bytes.HasPrefix(k, prefix) {
 				break
@@ -543,9 +558,9 @@ func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo,
 				continue // Skip invalid metadata
 			}
 
-			if metadata.Type == "episode" && 
-			   metadata.SeriesID == seriesID && 
-			   metadata.SeasonNumber == season {
+			if metadata.Type == "episode" &&
+				metadata.SeriesID == seriesID &&
+				metadata.SeasonNumber == season {
 				episodes = append(episodes, EpisodeInfo{
 					ID:      metadata.ID,
 					Season:  metadata.SeasonNumber,
@@ -559,7 +574,7 @@ func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo,
 	})
 
 	if err != nil {
-		m.logger.Error("Failed to get series episodes", 
+		m.logger.Error("Failed to get series episodes",
 			"series_id", seriesID, "season", season, "error", err)
 		return nil, err
 	}
@@ -576,7 +591,7 @@ func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo,
 // Used by predictor to avoid queuing already cached content.
 func (m *Manager) IsMediaCached(mediaID string) (bool, error) {
 	var exists bool
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
 		if bucket == nil {
@@ -585,7 +600,7 @@ func (m *Manager) IsMediaCached(mediaID string) (bool, error) {
 
 		// Check for any download record with this media ID
 		cursor := bucket.Cursor()
-		
+
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			var record DownloadRecord
 			if err := json.Unmarshal(v, &record); err != nil {
@@ -608,7 +623,7 @@ func (m *Manager) IsMediaCached(mediaID string) (bool, error) {
 // This would be populated by syncing with Jellyfin viewing activity.
 func (m *Manager) GetViewingHistory(userID string, days int) ([]ViewingSession, error) {
 	var sessions []ViewingSession
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketStats)
 		if bucket == nil {
@@ -639,7 +654,7 @@ func (m *Manager) GetViewingHistory(userID string, days int) ([]ViewingSession, 
 	})
 
 	if err != nil {
-		m.logger.Error("Failed to get viewing history", 
+		m.logger.Error("Failed to get viewing history",
 			"user_id", userID, "days", days, "error", err)
 		return nil, err
 	}
@@ -659,7 +674,7 @@ func (m *Manager) StoreViewingSession(userID string, session ViewingSession) err
 		// Get existing history
 		key := fmt.Sprintf("history:%s", userID)
 		var sessions []ViewingSession
-		
+
 		if data := bucket.Get([]byte(key)); data != nil {
 			if err := json.Unmarshal(data, &sessions); err != nil {
 				m.logger.Warn("Failed to unmarshal existing history", "error", err)
@@ -688,7 +703,7 @@ func (m *Manager) StoreViewingSession(userID string, session ViewingSession) err
 // GetCacheStats returns cache statistics for system monitoring.
 func (m *Manager) GetCacheStats() (*CacheStats, error) {
 	var stats CacheStats
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		// Get downloads bucket to calculate statistics
 		bucket := tx.Bucket(bucketDownloads)
@@ -696,10 +711,10 @@ func (m *Manager) GetCacheStats() (*CacheStats, error) {
 			// No downloads yet, return zero stats
 			return nil
 		}
-		
+
 		var totalSize int64
 		var itemCount int
-		
+
 		// Iterate through all download records
 		bucket.ForEach(func(k, v []byte) error {
 			var record DownloadRecord
@@ -707,25 +722,25 @@ func (m *Manager) GetCacheStats() (*CacheStats, error) {
 				m.logger.Warn("Failed to unmarshal download record", "key", string(k), "error", err)
 				return nil // Continue iteration
 			}
-			
+
 			totalSize += record.Size
 			itemCount++
 			return nil
 		})
-		
+
 		stats.TotalSizeBytes = totalSize
 		stats.TotalItems = itemCount
-		stats.Size = totalSize // Alias
+		stats.Size = totalSize      // Alias
 		stats.ItemCount = itemCount // Alias
 		stats.LastSync = time.Now() // TODO: Track actual last sync time
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cache stats: %w", err)
 	}
-	
+
 	return &stats, nil
 }
 
@@ -733,19 +748,19 @@ func (m *Manager) GetCacheStats() (*CacheStats, error) {
 // Used for pagination to provide accurate total counts.
 func (m *Manager) GetCachedItemsCount(mediaType string) (int, error) {
 	var count int
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketDownloads)
 		if bucket == nil {
 			return nil // No downloads bucket means 0 items
 		}
-		
+
 		if mediaType == "" {
 			// Count all items
 			count = bucket.Stats().KeyN
 			return nil
 		}
-		
+
 		// Count items matching media type
 		c := bucket.Cursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
@@ -753,18 +768,104 @@ func (m *Manager) GetCachedItemsCount(mediaType string) (int, error) {
 			if err := json.Unmarshal(c.Get(), &record); err != nil {
 				continue // Skip invalid records
 			}
-			
+
 			if record.MediaType == mediaType {
 				count++
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get cached items count: %w", err)
 	}
-	
+
 	return count, nil
+}
+
+// GetCachedItems returns cached items with pagination support.
+// Used by /api/library endpoint to list downloaded media.
+func (m *Manager) GetCachedItems(mediaType string, page, limit int) ([]*CachedItem, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+
+	var items []*CachedItem
+	skip := (page - 1) * limit
+
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketDownloads)
+		if bucket == nil {
+			return nil // No downloads bucket means empty list
+		}
+
+		metaBucket := tx.Bucket(bucketMetadata)
+
+		c := bucket.Cursor()
+		itemCount := 0
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var record DownloadRecord
+			if err := json.Unmarshal(v, &record); err != nil {
+				m.logger.Warn("Failed to unmarshal download record",
+					"key", string(k), "error", err)
+				continue
+			}
+
+			// Filter by media type if specified
+			if mediaType != "" && record.MediaType != mediaType {
+				continue
+			}
+
+			// Skip items before current page
+			if itemCount < skip {
+				itemCount++
+				continue
+			}
+
+			// Stop if we've collected enough items
+			if len(items) >= limit {
+				break
+			}
+
+			// Create cached item from download record
+			item := &CachedItem{
+				ID:        record.JellyfinID,
+				Name:      record.Title,
+				Type:      record.MediaType,
+				Path:      record.LocalPath,
+				Size:      record.Size,
+				DateAdded: record.DownloadedAt,
+			}
+
+			// Try to get additional metadata if available
+			if metaBucket != nil {
+				metaKey := []byte("meta:" + record.JellyfinID)
+				if metaData := metaBucket.Get(metaKey); metaData != nil {
+					var metadata MediaMetadata
+					if err := json.Unmarshal(metaData, &metadata); err == nil {
+						item.SeriesID = metadata.SeriesID
+						item.SeasonNumber = metadata.SeasonNumber
+						item.EpisodeNumber = metadata.EpisodeNumber
+						// SeriesName would need to be looked up separately
+					}
+				}
+			}
+
+			items = append(items, item)
+			itemCount++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached items: %w", err)
+	}
+
+	return items, nil
 }

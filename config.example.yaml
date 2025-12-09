@@ -28,7 +28,7 @@ download:
   auto_download_next: true                        # Queue next episodes automatically
   auto_download_count: 2                          # Number of episodes to queue ahead
   current_episode_priority: true                  # Use full bandwidth for current episode
-  retry_attempts: 5                               # Retry attempts for failed downloads
+  retry_attempts: 6                               # Retry attempts for failed downloads (matches 1s,2s,4s,8s,16s,30s pattern)
   retry_delay: "1s"                               # Initial retry delay
 
 # HTTP server configuration

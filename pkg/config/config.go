@@ -46,15 +46,15 @@ type CacheConfig struct {
 
 // DownloadConfig controls download behavior, rate limiting, and scheduling.
 type DownloadConfig struct {
-	Workers                 int                      `koanf:"workers"`
-	RateLimitMbps          int                      `koanf:"rate_limit_mbps"`
-	RateLimitSchedule      RateLimitScheduleConfig  `koanf:"rate_limit_schedule"`
-	AutoDownloadCurrent    bool                     `koanf:"auto_download_current"`
-	AutoDownloadNext       bool                     `koanf:"auto_download_next"`
-	AutoDownloadCount      int                      `koanf:"auto_download_count"`
-	CurrentEpisodePriority bool                     `koanf:"current_episode_priority"`
-	RetryAttempts          int                      `koanf:"retry_attempts"`
-	RetryDelay             time.Duration            `koanf:"retry_delay"`
+	Workers                int                     `koanf:"workers"`
+	RateLimitMbps          int                     `koanf:"rate_limit_mbps"`
+	RateLimitSchedule      RateLimitScheduleConfig `koanf:"rate_limit_schedule"`
+	AutoDownloadCurrent    bool                    `koanf:"auto_download_current"`
+	AutoDownloadNext       bool                    `koanf:"auto_download_next"`
+	AutoDownloadCount      int                     `koanf:"auto_download_count"`
+	CurrentEpisodePriority bool                    `koanf:"current_episode_priority"`
+	RetryAttempts          int                     `koanf:"retry_attempts"`
+	RetryDelay             time.Duration           `koanf:"retry_delay"`
 }
 
 // RateLimitScheduleConfig defines peak/off-peak bandwidth scheduling.
@@ -90,9 +90,9 @@ type LoggingConfig struct {
 
 // UIConfig contains user interface settings.
 type UIConfig struct {
-	Theme                    string `koanf:"theme"`
-	Language                 string `koanf:"language"`
-	VideoQualityPreference   string `koanf:"video_quality_preference"`
+	Theme                  string `koanf:"theme"`
+	Language               string `koanf:"language"`
+	VideoQualityPreference string `koanf:"video_quality_preference"`
 }
 
 // Load reads configuration from the specified YAML file and applies validation.
@@ -165,7 +165,7 @@ func applyDefaults(config *Config) {
 		config.Download.AutoDownloadCount = 2
 	}
 	if config.Download.RetryAttempts == 0 {
-		config.Download.RetryAttempts = 5
+		config.Download.RetryAttempts = 6 // Matches documented pattern: 1s, 2s, 4s, 8s, 16s, 30s
 	}
 	if config.Download.RetryDelay == 0 {
 		config.Download.RetryDelay = 1 * time.Second

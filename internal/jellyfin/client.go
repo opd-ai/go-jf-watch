@@ -141,3 +141,26 @@ type ServerInfo struct {
 	OperatingSystem string `json:"operating_system"`
 	ID              string `json:"id"`
 }
+
+// GetStreamURL constructs the direct stream URL for a media item.
+// Returns the URL that can be used to proxy/redirect streaming requests.
+func (c *Client) GetStreamURL(mediaID string) (string, error) {
+	if c.config.ServerURL == "" {
+		return "", fmt.Errorf("server URL not configured")
+	}
+	
+	if c.config.APIKey == "" {
+		return "", fmt.Errorf("API key not configured")
+	}
+	
+	// Construct direct stream URL for Jellyfin
+	// Format: {server}/Videos/{id}/stream?Static=true&api_key={key}
+	streamURL := fmt.Sprintf("%s/Videos/%s/stream?Static=true&api_key=%s",
+		c.config.ServerURL, mediaID, c.config.APIKey)
+	
+	c.logger.Debug("Generated stream URL for media",
+		"media_id", mediaID,
+		"url", streamURL)
+	
+	return streamURL, nil
+}

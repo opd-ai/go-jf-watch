@@ -142,8 +142,8 @@ func (p *Predictor) OnPlaybackStart(ctx context.Context, mediaID string) error {
 
 	session.MediaType = metadata.Type
 	session.SeriesID = metadata.SeriesID
-	session.Season = metadata.Season
-	session.Episode = metadata.Episode
+	session.Season = metadata.SeasonNumber
+	session.Episode = metadata.EpisodeNumber
 
 	// Add to viewing history for future analysis
 	p.viewingHistory = append(p.viewingHistory, session)

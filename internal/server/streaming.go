@@ -23,7 +23,7 @@ func (s *Server) handleVideoStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Debug("Video stream request", 
+	s.logger.Debug("Video stream request",
 		"media_id", mediaID,
 		"range", r.Header.Get("Range"),
 		"user_agent", r.UserAgent())
@@ -79,13 +79,13 @@ func (s *Server) serveVideoFile(w http.ResponseWriter, r *http.Request, filePath
 	}
 
 	fileSize := fileInfo.Size()
-	
+
 	// Set content type
 	if contentType == "" {
 		contentType = s.detectContentType(filePath, file)
 	}
 	w.Header().Set("Content-Type", contentType)
-	
+
 	// Set headers for video streaming
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
@@ -96,7 +96,7 @@ func (s *Server) serveVideoFile(w http.ResponseWriter, r *http.Request, filePath
 		// No range request, serve entire file
 		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 		w.WriteHeader(http.StatusOK)
-		
+
 		if r.Method != "HEAD" {
 			io.Copy(w, file)
 		}
@@ -143,11 +143,71 @@ func (s *Server) serveVideoFile(w http.ResponseWriter, r *http.Request, filePath
 // handleFallbackStream handles streaming from Jellyfin server when file is not cached.
 // Proxies the request to the original Jellyfin server while preserving headers.
 func (s *Server) handleFallbackStream(w http.ResponseWriter, r *http.Request, mediaID string) {
-	// TODO: Implement fallback to Jellyfin server
-	// This requires integration with the Jellyfin client to get stream URL
-	
-	s.logger.Info("Fallback streaming not yet implemented", "media_id", mediaID)
-	s.writeErrorResponse(w, http.StatusNotFound, "Media not available", nil)
+	s.logger.Info("Streaming uncached media from Jellyfin server", "media_id", mediaID)
+
+	// Get stream URL from Jellyfin client
+	streamURL, err := s.jellyfinClient.GetStreamURL(mediaID)
+	if err != nil {
+		s.logger.Error("Failed to get stream URL from Jellyfin",
+			"media_id", mediaID, "error", err)
+		s.writeErrorResponse(w, http.StatusInternalServerError,
+			"Failed to get stream URL", err)
+		return
+	}
+
+	// Create proxy request to Jellyfin server
+	proxyReq, err := http.NewRequestWithContext(r.Context(), "GET", streamURL, nil)
+	if err != nil {
+		s.logger.Error("Failed to create proxy request", "error", err)
+		s.writeErrorResponse(w, http.StatusInternalServerError,
+			"Failed to create proxy request", err)
+		return
+	}
+
+	// Copy relevant headers from original request
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		proxyReq.Header.Set("Range", rangeHeader)
+	}
+	if userAgent := r.Header.Get("User-Agent"); userAgent != "" {
+		proxyReq.Header.Set("User-Agent", userAgent)
+	}
+
+	// Make request to Jellyfin server
+	client := &http.Client{
+		Timeout: 0, // No timeout for streaming
+	}
+
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		s.logger.Error("Failed to proxy request to Jellyfin",
+			"media_id", mediaID, "error", err)
+		s.writeErrorResponse(w, http.StatusBadGateway,
+			"Failed to stream from Jellyfin server", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	// Set status code
+	w.WriteHeader(resp.StatusCode)
+
+	// Stream the response body
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		s.logger.Error("Error streaming from Jellyfin",
+			"media_id", mediaID, "error", err)
+		// Can't write error response as we've already started streaming
+		return
+	}
+
+	s.logger.Debug("Successfully streamed uncached media from Jellyfin",
+		"media_id", mediaID, "status", resp.StatusCode)
 }
 
 // detectContentType detects the MIME type of a video file.
@@ -180,15 +240,15 @@ func (s *Server) detectContentType(filePath string, file *os.File) string {
 	if err != nil {
 		return "application/octet-stream"
 	}
-	
+
 	// Reset file position
 	file.Seek(0, io.SeekStart)
-	
+
 	contentType := http.DetectContentType(buffer[:n])
 	if strings.HasPrefix(contentType, "video/") {
 		return contentType
 	}
-	
+
 	// Default for unknown video files
 	return "video/mp4"
 }
@@ -207,19 +267,19 @@ func (s *Server) parseRangeHeader(rangeHeader string, fileSize int64) ([]Range, 
 
 	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
 	rangeParts := strings.Split(rangeSpec, ",")
-	
+
 	var ranges []Range
-	
+
 	for _, part := range rangeParts {
 		part = strings.TrimSpace(part)
-		
+
 		if strings.Contains(part, "-") {
 			rangeBounds := strings.SplitN(part, "-", 2)
 			startStr, endStr := rangeBounds[0], rangeBounds[1]
-			
+
 			var start, end int64
 			var err error
-			
+
 			if startStr == "" {
 				// Suffix range: -500 (last 500 bytes)
 				if endStr == "" {
@@ -240,7 +300,7 @@ func (s *Server) parseRangeHeader(rangeHeader string, fileSize int64) ([]Range, 
 				if err != nil {
 					return nil, fmt.Errorf("invalid range start: %v", err)
 				}
-				
+
 				if endStr == "" {
 					// Range from start to end of file
 					end = fileSize - 1
@@ -251,22 +311,22 @@ func (s *Server) parseRangeHeader(rangeHeader string, fileSize int64) ([]Range, 
 					}
 				}
 			}
-			
+
 			// Validate range
 			if start < 0 || end < 0 || start > end || start >= fileSize {
 				return nil, fmt.Errorf("invalid range bounds")
 			}
-			
+
 			// Clamp end to file size
 			if end >= fileSize {
 				end = fileSize - 1
 			}
-			
+
 			ranges = append(ranges, Range{start: start, end: end})
 		} else {
 			return nil, fmt.Errorf("invalid range format")
 		}
 	}
-	
+
 	return ranges, nil
 }
