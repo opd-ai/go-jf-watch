@@ -9,11 +9,13 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -96,6 +98,32 @@ type StorageStats struct {
 	OldestDownload   time.Time     `json:"oldest_download"`
 	NewestDownload   time.Time     `json:"newest_download"`
 	LastUpdated      time.Time     `json:"last_updated"`
+}
+
+// EpisodeInfo contains basic information about a TV episode.
+// Used by predictor to find next episodes in a series.
+type EpisodeInfo struct {
+	ID      string `json:"id"`
+	Season  int    `json:"season"`
+	Episode int    `json:"episode"`
+	Name    string `json:"name"`
+}
+
+// ViewingSession represents a media viewing session for prediction analysis.
+// This would be populated by syncing with Jellyfin playback activity.
+type ViewingSession struct {
+	MediaID      string    `json:"media_id"`
+	MediaType    string    `json:"media_type"`    // "movie", "episode"
+	SeriesID     string    `json:"series_id,omitempty"`
+	Season       int       `json:"season,omitempty"`
+	Episode      int       `json:"episode,omitempty"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+	Duration     int64     `json:"duration"`      // Total duration in seconds
+	WatchedTime  int64     `json:"watched_time"`  // Time actually watched
+	Completed    bool      `json:"completed"`     // Watched >85% of content
+	DeviceType   string    `json:"device_type,omitempty"`
+	QualityLevel string    `json:"quality_level,omitempty"`
 }
 
 // NewManager creates a new storage manager with the given configuration.
@@ -414,4 +442,199 @@ func (m *Manager) GetStorageStats() (*StorageStats, error) {
 	})
 
 	return stats, err
+}
+
+// GetMediaMetadata retrieves cached metadata for a media item.
+// Used by the predictor to get series/episode information for predictions.
+func (m *Manager) GetMediaMetadata(mediaID string) (*MediaMetadata, error) {
+	var metadata MediaMetadata
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMetadata)
+		if bucket == nil {
+			return fmt.Errorf("metadata bucket not found")
+		}
+
+		key := fmt.Sprintf("meta:%s", mediaID)
+		data := bucket.Get([]byte(key))
+		if data == nil {
+			return fmt.Errorf("metadata not found for media ID: %s", mediaID)
+		}
+
+		return json.Unmarshal(data, &metadata)
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to get media metadata", "media_id", mediaID, "error", err)
+		return nil, err
+	}
+
+	return &metadata, nil
+}
+
+// GetSeriesEpisodes returns all episodes for a series and season.
+// Used by predictor to find next episodes in sequence.
+func (m *Manager) GetSeriesEpisodes(seriesID string, season int) ([]EpisodeInfo, error) {
+	var episodes []EpisodeInfo
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMetadata)
+		if bucket == nil {
+			return fmt.Errorf("metadata bucket not found")
+		}
+
+		// Iterate through metadata to find episodes of this series/season
+		cursor := bucket.Cursor()
+		prefix := []byte("meta:")
+		
+		for k, v := cursor.Seek(prefix); k != nil && len(k) >= len(prefix); k, v = cursor.Next() {
+			if !bytes.HasPrefix(k, prefix) {
+				break
+			}
+
+			var metadata MediaMetadata
+			if err := json.Unmarshal(v, &metadata); err != nil {
+				continue // Skip invalid metadata
+			}
+
+			if metadata.Type == "episode" && 
+			   metadata.SeriesID == seriesID && 
+			   metadata.SeasonNumber == season {
+				episodes = append(episodes, EpisodeInfo{
+					ID:      metadata.ID,
+					Season:  metadata.SeasonNumber,
+					Episode: metadata.EpisodeNumber,
+					Name:    metadata.Name,
+				})
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to get series episodes", 
+			"series_id", seriesID, "season", season, "error", err)
+		return nil, err
+	}
+
+	// Sort episodes by episode number
+	sort.Slice(episodes, func(i, j int) bool {
+		return episodes[i].Episode < episodes[j].Episode
+	})
+
+	return episodes, nil
+}
+
+// IsMediaCached checks if a media item is already downloaded and cached.
+// Used by predictor to avoid queuing already cached content.
+func (m *Manager) IsMediaCached(mediaID string) (bool, error) {
+	var exists bool
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketDownloads)
+		if bucket == nil {
+			return nil // No downloads yet
+		}
+
+		// Check for any download record with this media ID
+		cursor := bucket.Cursor()
+		
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var record DownloadRecord
+			if err := json.Unmarshal(v, &record); err != nil {
+				continue
+			}
+
+			if record.ID == mediaID || record.JellyfinID == mediaID {
+				exists = true
+				break
+			}
+		}
+
+		return nil
+	})
+
+	return exists, err
+}
+
+// GetViewingHistory returns user viewing history for prediction analysis.
+// This would be populated by syncing with Jellyfin viewing activity.
+func (m *Manager) GetViewingHistory(userID string, days int) ([]ViewingSession, error) {
+	var sessions []ViewingSession
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketStats)
+		if bucket == nil {
+			return nil // No viewing history yet
+		}
+
+		// Get viewing history for user (this would be stored by Jellyfin sync)
+		key := fmt.Sprintf("history:%s", userID)
+		data := bucket.Get([]byte(key))
+		if data == nil {
+			return nil // No history for this user
+		}
+
+		var allSessions []ViewingSession
+		if err := json.Unmarshal(data, &allSessions); err != nil {
+			return err
+		}
+
+		// Filter to last N days
+		cutoff := time.Now().AddDate(0, 0, -days)
+		for _, session := range allSessions {
+			if session.StartTime.After(cutoff) {
+				sessions = append(sessions, session)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to get viewing history", 
+			"user_id", userID, "days", days, "error", err)
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+// StoreViewingSession adds a viewing session to the history.
+// Called when user starts/completes watching content.
+func (m *Manager) StoreViewingSession(userID string, session ViewingSession) error {
+	return m.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(bucketStats)
+		if err != nil {
+			return fmt.Errorf("failed to create stats bucket: %w", err)
+		}
+
+		// Get existing history
+		key := fmt.Sprintf("history:%s", userID)
+		var sessions []ViewingSession
+		
+		if data := bucket.Get([]byte(key)); data != nil {
+			if err := json.Unmarshal(data, &sessions); err != nil {
+				m.logger.Warn("Failed to unmarshal existing history", "error", err)
+				sessions = []ViewingSession{} // Start fresh on error
+			}
+		}
+
+		// Add new session
+		sessions = append(sessions, session)
+
+		// Keep only last 1000 sessions to prevent unbounded growth
+		if len(sessions) > 1000 {
+			sessions = sessions[len(sessions)-1000:]
+		}
+
+		// Store updated history
+		data, err := json.Marshal(sessions)
+		if err != nil {
+			return fmt.Errorf("failed to marshal viewing history: %w", err)
+		}
+
+		return bucket.Put([]byte(key), data)
+	})
 }
