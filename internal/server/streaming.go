@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,19 @@ func (s *Server) handleVideoStream(w http.ResponseWriter, r *http.Request) {
 		"media_id", mediaID,
 		"range", r.Header.Get("Range"),
 		"user_agent", r.UserAgent())
+
+	// Trigger playback prediction for Priority 0 download and next episode queuing
+	// Only trigger on initial request (not range requests for seeking)
+	if r.Header.Get("Range") == "" {
+		go func() {
+			ctx := context.Background()
+			if err := s.predictor.OnPlaybackStart(ctx, mediaID); err != nil {
+				s.logger.Warn("Failed to trigger playback prediction",
+					"media_id", mediaID,
+					"error", err)
+			}
+		}()
+	}
 
 	// Check if file exists in cache
 	cachedItem, err := s.storage.GetDownload(mediaID)

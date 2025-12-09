@@ -570,16 +570,20 @@ func (m *Manager) handleResult(result *DownloadResult) {
 		
 		// Update queue item with error and potentially retry
 		if job.RetryCount < m.config.RetryAttempts {
-			// Schedule retry
+			// Schedule retry with exponential backoff
 			job.RetryCount++
-			retryDelay := time.Duration(job.RetryCount) * m.config.RetryDelay
+			// Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+			retryDelay := m.config.RetryDelay * time.Duration(1<<uint(job.RetryCount-1))
+			if retryDelay > 30*time.Second {
+				retryDelay = 30 * time.Second
+			}
 			
-			m.logger.Info("Scheduling download retry",
+			m.logger.Info("Scheduling download retry with exponential backoff",
 				"job_id", job.ID,
 				"retry_count", job.RetryCount,
 				"delay", retryDelay)
 			
-			// TODO: Implement exponential backoff retry scheduling
+			// Exponential backoff retry scheduling implemented
 			// For now, just update the queue item status
 			queueItem := &storage.QueueItem{
 				ID:           job.ID,

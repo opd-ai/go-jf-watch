@@ -247,6 +247,41 @@ func (m *Manager) GetDownloadRecord(mediaType, jellyfinID string) (*DownloadReco
 	return &record, nil
 }
 
+// GetDownload retrieves a download record by media ID (Jellyfin ID).
+// Searches across all media types to find the matching record.
+func (m *Manager) GetDownload(mediaID string) (*DownloadRecord, error) {
+	var record *DownloadRecord
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketDownloads)
+		
+		// Search through all records to find matching JellyfinID
+		c := bucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var rec DownloadRecord
+			if err := json.Unmarshal(v, &rec); err != nil {
+				m.logger.Warn("Failed to unmarshal download record",
+					"key", string(k),
+					"error", err)
+				continue
+			}
+			
+			if rec.JellyfinID == mediaID {
+				record = &rec
+				return nil
+			}
+		}
+		
+		return fmt.Errorf("download record not found for media ID: %s", mediaID)
+	})
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	return record, nil
+}
+
 // ListDownloadRecords returns all download records, optionally filtered by media type.
 func (m *Manager) ListDownloadRecords(mediaType string) ([]*DownloadRecord, error) {
 	var records []*DownloadRecord

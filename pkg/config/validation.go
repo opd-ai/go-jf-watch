@@ -200,6 +200,11 @@ func validateUI(config *UIConfig) error {
 
 // validatePeakHours validates the peak hours format (HH:MM-HH:MM).
 func validatePeakHours(peakHours string) error {
+	// Empty string is valid - disables peak hours feature
+	if peakHours == "" {
+		return nil
+	}
+	
 	// Expected format: "06:00-23:00"
 	pattern := `^([0-1][0-9]|2[0-3]):[0-5][0-9]-([0-1][0-9]|2[0-3]):[0-5][0-9]$`
 	matched, err := regexp.MatchString(pattern, peakHours)
@@ -208,7 +213,7 @@ func validatePeakHours(peakHours string) error {
 	}
 
 	if !matched {
-		return fmt.Errorf("must be in format HH:MM-HH:MM (e.g., 06:00-23:00)")
+		return fmt.Errorf("must be in format HH:MM-HH:MM (e.g., 06:00-23:00) or empty to disable")
 	}
 
 	return nil

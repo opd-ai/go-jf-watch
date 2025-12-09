@@ -203,13 +203,13 @@ ui:
 ### REST Endpoints
 
 ```
-GET  /                          # Web UI
-GET  /api/library               # Cached library items  
-GET  /api/queue                 # Download queue status
-POST /api/queue/add             # Add item to download queue
-DEL  /api/queue/{id}            # Remove from queue
-GET  /stream/{id}               # Local video streaming
-GET  /api/status                # System status and stats
+GET    /                          # Web UI
+GET    /api/library               # Cached library items  
+GET    /api/queue                 # Download queue status
+POST   /api/queue/add             # Add item to download queue
+DELETE /api/queue/{id}            # Remove from queue
+GET    /stream/{id}               # Local video streaming
+GET    /api/status                # System status and stats
 ```
 
 ### WebSocket
