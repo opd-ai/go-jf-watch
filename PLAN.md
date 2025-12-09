@@ -185,13 +185,13 @@ cache/
 ├── movies/
 │   └── {jellyfin-id}/
 │       ├── video.mkv           # Original filename preserved
-│       ├── subtitles/          # Subtitle files
+│       ├── subtitles/          # Subtitle files (v1.1 - not yet implemented)
 │       └── .meta.json          # Local metadata
 ├── series/
 │   └── {series-id}/
 │       └── S{season:02d}E{episode:02d}/
 │           ├── video.mkv
-│           ├── subtitles/
+│           ├── subtitles/      # (v1.1 - not yet implemented)
 │           └── .meta.json
 └── temp/                       # In-progress downloads
     └── {download-id}.tmp
@@ -284,7 +284,7 @@ limiter := rate.NewLimiter(rate.Limit(maxMBps*1024*1024/8), burstSize)
 ```
 
 **Scheduling Rules**:
-- **Currently Playing**: Always use full bandwidth regardless of time (Priority 0)
+- **Currently Playing**: Bypasses all rate limiting (Priority 0) - full bandwidth with no throttling
 - **Peak Hours**: Other downloads throttled to 25% of max bandwidth (6 AM - 11 PM)
 - **Off-Peak**: Full bandwidth for all downloads (11 PM - 6 AM)
 - **User Override**: Manual pause/resume with immediate effect
@@ -507,7 +507,7 @@ require (
 ### 10.3 Storage Strategy Decisions
 - **Metadata Storage**: BoltDB chosen over flatfiles for ACID properties and better performance
 - **File Organization**: Preserve original filenames, use Jellyfin IDs for directories
-- **Corruption Handling**: Checksum validation on download completion
+- **Corruption Handling**: Checksum validation on download completion (v1.1 - planned)
 - **Migration Strategy**: V1 schema, plan for future migrations
 
 ### 10.4 Risks & Mitigations

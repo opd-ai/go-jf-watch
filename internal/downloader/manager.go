@@ -57,7 +57,6 @@ type DownloadJob struct {
 	URL        string
 	LocalPath  string
 	Size       int64
-	Checksum   string
 	RetryCount int
 	CreatedAt  time.Time
 }

@@ -68,8 +68,8 @@ func (c *CacheManager) GetCacheSize() (int64, error) {
 
 		err := filepath.Walk(mediaDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				c.logger.Warn("Error walking cache directory", 
-					"path", path, 
+				c.logger.Warn("Error walking cache directory",
+					"path", path,
 					"error", err)
 				return nil // Continue walking
 			}
@@ -117,7 +117,7 @@ func (c *CacheManager) GetMediaPath(mediaType, jellyfinID string, seasonNum, epi
 	case "movie":
 		return filepath.Join(c.config.Directory, "movies", jellyfinID, filename)
 	case "episode":
-		return filepath.Join(c.config.Directory, "series", jellyfinID, 
+		return filepath.Join(c.config.Directory, "series", jellyfinID,
 			fmt.Sprintf("S%02dE%02d", seasonNum, episodeNum), filename)
 	default:
 		return filepath.Join(c.config.Directory, mediaType, jellyfinID, filename)
@@ -134,7 +134,7 @@ func (c *CacheManager) GetMetadataPath(mediaType, jellyfinID string, seasonNum, 
 func (c *CacheManager) EnsureDirectory(mediaType, jellyfinID string, seasonNum, episodeNum int) error {
 	mediaPath := c.GetMediaPath(mediaType, jellyfinID, seasonNum, episodeNum, "dummy")
 	mediaDir := filepath.Dir(mediaPath)
-	
+
 	if err := os.MkdirAll(mediaDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", mediaDir, err)
 	}
@@ -168,7 +168,7 @@ func (c *CacheManager) GetCacheEntries() ([]*CacheEntry, error) {
 	}
 
 	var entries []*CacheEntry
-	
+
 	for _, record := range records {
 		// Check if file exists
 		info, err := os.Stat(record.LocalPath)
@@ -238,17 +238,17 @@ func (c *CacheManager) GetEvictionCandidates(targetSize int64) ([]*EvictionCandi
 		// 1. Age since last access (higher = more evictable)
 		// 2. Size (larger files get slight preference for removal)
 		// 3. Media type preferences
-		
+
 		daysSinceAccess := now.Sub(entry.LastAccessed).Hours() / 24
 		sizeMB := float64(entry.Size) / (1024 * 1024)
-		
+
 		score := daysSinceAccess * 1.0 // Base score from age
-		
+
 		// Slight preference for removing larger files when space is tight
 		if sizeMB > 1000 { // Files > 1GB
 			score += 0.5
 		}
-		
+
 		// Media type scoring (movies slightly more evictable than episodes)
 		if entry.MediaType == "movie" {
 			score += 0.1
@@ -268,11 +268,11 @@ func (c *CacheManager) GetEvictionCandidates(targetSize int64) ([]*EvictionCandi
 	// Return only enough candidates to reach target size
 	var totalSize int64
 	var result []*EvictionCandidate
-	
+
 	for _, candidate := range candidates {
 		result = append(result, candidate)
 		totalSize += candidate.Size
-		
+
 		if totalSize >= targetSize {
 			break
 		}
@@ -297,7 +297,7 @@ func (c *CacheManager) EvictItems(candidates []*EvictionCandidate) error {
 
 		totalEvicted += candidate.Size
 		evictedCount++
-		
+
 		c.logger.Info("Evicted cached item",
 			"jellyfin_id", candidate.JellyfinID,
 			"size_mb", candidate.Size/(1024*1024),
@@ -321,8 +321,8 @@ func (c *CacheManager) evictSingleItem(candidate *EvictionCandidate) error {
 	// Remove metadata file if it exists
 	metadataPath := filepath.Join(filepath.Dir(candidate.Path), ".meta.json")
 	if err := os.Remove(metadataPath); err != nil && !os.IsNotExist(err) {
-		c.logger.Debug("Failed to remove metadata file", 
-			"path", metadataPath, 
+		c.logger.Debug("Failed to remove metadata file",
+			"path", metadataPath,
 			"error", err)
 	}
 
@@ -334,7 +334,7 @@ func (c *CacheManager) evictSingleItem(candidate *EvictionCandidate) error {
 
 	// Note: We don't remove from database to maintain download history
 	// The record will show that it was downloaded but is no longer cached
-	
+
 	return nil
 }
 
@@ -355,24 +355,40 @@ func (c *CacheManager) isDirEmpty(dir string) (bool, error) {
 }
 
 // CleanupCache performs cache cleanup when utilization exceeds threshold.
+// Implements two-tier cleanup:
+// - Normal cleanup at eviction threshold (default 85%) targets 70% utilization
+// - Emergency cleanup at 95% capacity targets 60% utilization with more aggressive eviction
 func (c *CacheManager) CleanupCache() error {
 	utilization, err := c.GetCacheUtilization()
 	if err != nil {
 		return fmt.Errorf("failed to check cache utilization: %w", err)
 	}
 
+	const emergencyThreshold = 0.95
+	isEmergency := utilization >= emergencyThreshold
+
 	if utilization < c.config.EvictionThreshold {
-		c.logger.Debug("Cache cleanup not needed", 
+		c.logger.Debug("Cache cleanup not needed",
 			"utilization", fmt.Sprintf("%.1f%%", utilization*100))
 		return nil
 	}
 
-	c.logger.Info("Starting cache cleanup", 
-		"utilization", fmt.Sprintf("%.1f%%", utilization*100),
-		"threshold", fmt.Sprintf("%.1f%%", c.config.EvictionThreshold*100))
+	if isEmergency {
+		c.logger.Warn("Emergency cache cleanup triggered",
+			"utilization", fmt.Sprintf("%.1f%%", utilization*100),
+			"emergency_threshold", fmt.Sprintf("%.1f%%", emergencyThreshold*100))
+	} else {
+		c.logger.Info("Starting cache cleanup",
+			"utilization", fmt.Sprintf("%.1f%%", utilization*100),
+			"threshold", fmt.Sprintf("%.1f%%", c.config.EvictionThreshold*100))
+	}
 
-	// Calculate target reduction (bring down to 70% of max capacity)
+	// Calculate target reduction
+	// Emergency cleanup is more aggressive (60% target vs 70% normal)
 	targetUtilization := 0.70
+	if isEmergency {
+		targetUtilization = 0.60
+	}
 	maxSizeBytes := int64(c.config.MaxSizeGB) * 1024 * 1024 * 1024
 	targetReduction := int64(float64(maxSizeBytes) * (utilization - targetUtilization))
 

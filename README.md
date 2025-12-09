@@ -16,7 +16,7 @@ A self-hosted web UI that intelligently pre-caches Jellyfin media locally to min
 - 🔧 **Single Binary**: Complete deployment with embedded web UI and assets
 - 📱 **Responsive Design**: Mobile-first interface using Water.css framework
 - 🔄 **Real-time Updates**: WebSocket connections for live download progress
-- ⚙️ **Configuration UI**: Web-based settings management with form validation
+- ⚙️ **Configuration UI**: Web-based settings management (changes require restart)
 
 ## Quick Start
 
@@ -97,7 +97,7 @@ Access the web UI at `http://localhost:8080`
 
 ### Smart Bandwidth Management
 
-- **Current Episode**: Always uses full bandwidth for instant playbook
+- **Current Episode**: Bypasses all rate limiting for instant playback (Priority 0)
 - **Peak Hours** (6AM-11PM): Background downloads use 25% bandwidth
 - **Off-Peak** (11PM-6AM): Full bandwidth for all downloads
 - **Configurable**: Adjust limits based on your network capacity
@@ -159,7 +159,7 @@ download:
   auto_download_next: true
   auto_download_count: 2
   current_episode_priority: true
-  retry_attempts: 5
+  retry_attempts: 6
   retry_delay: "1s"
 
 server:
