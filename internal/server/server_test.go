@@ -37,7 +37,10 @@ func TestNew(t *testing.T) {
 	}
 	defer storageManager.Close()
 
-	server := New(cfg, storageManager, logger)
+	server, err := New(cfg, storageManager, logger, "test-version")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
 
 	if server == nil {
 		t.Fatal("Expected server to be non-nil")
@@ -341,7 +344,10 @@ func TestServerStartStop(t *testing.T) {
 	}
 	defer storageManager.Close()
 
-	server := New(cfg, storageManager, logger)
+	server, err := New(cfg, storageManager, logger, "test-version")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
 
 	// Test server stop without starting
 	if err := server.Stop(); err != nil {
@@ -375,5 +381,9 @@ func createTestServer(t *testing.T) *Server {
 		storageManager.Close()
 	})
 
-	return New(cfg, storageManager, logger)
+	server, err := New(cfg, storageManager, logger, "test-version")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	return server
 }

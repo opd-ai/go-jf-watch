@@ -1,0 +1,5 @@
+# Favicon Placeholder
+
+This would contain a favicon.ico file for the web UI.
+
+For development purposes, browsers will use a default icon if favicon is missing.

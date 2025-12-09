@@ -16,27 +16,36 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/opd-ai/go-jf-watch/internal/storage"
+	"github.com/opd-ai/go-jf-watch/internal/ui"
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
 
 // Server represents the HTTP server for go-jf-watch.
-// It provides REST API endpoints, video streaming, and WebSocket connections
-// for real-time download progress updates.
+// It provides REST API endpoints, video streaming, WebSocket connections
+// for real-time download progress updates, and embedded web UI.
 type Server struct {
 	config      *config.ServerConfig
 	logger      *slog.Logger
 	storage     *storage.Manager
+	ui          *ui.UI
 	httpServer  *http.Server
 	router      chi.Router
 }
 
 // New creates a new HTTP server instance with the provided configuration.
 // The server is configured with middleware for logging, CORS, and request recovery.
-func New(cfg *config.ServerConfig, storage *storage.Manager, logger *slog.Logger) *Server {
+func New(cfg *config.ServerConfig, storage *storage.Manager, logger *slog.Logger, version string) (*Server, error) {
+	// Initialize embedded UI
+	uiHandler, err := ui.New(version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize UI: %w", err)
+	}
+
 	s := &Server{
 		config:  cfg,
 		logger:  logger,
 		storage: storage,
+		ui:      uiHandler,
 	}
 
 	// Create router with middleware
@@ -54,7 +63,7 @@ func New(cfg *config.ServerConfig, storage *storage.Manager, logger *slog.Logger
 		IdleTimeout:  60 * time.Second,
 	}
 
-	return s
+	return s, nil
 }
 
 // setupMiddleware configures the middleware stack for the router.
@@ -100,6 +109,9 @@ func (s *Server) setupRoutes() {
 			r.Post("/add", s.handleQueueAdd)
 			r.Delete("/{id}", s.handleQueueRemove)
 		})
+		// Settings endpoints for UI configuration
+		r.Get("/settings", s.handleGetSettings)
+		r.Post("/settings", s.handlePostSettings)
 	})
 
 	// Video streaming endpoint with Range support
@@ -108,8 +120,8 @@ func (s *Server) setupRoutes() {
 	// WebSocket endpoint for real-time updates
 	s.router.Get("/ws/progress", s.handleWebSocket)
 
-	// Static file serving (placeholder for Phase 4)
-	s.router.Get("/*", s.handleStaticFiles)
+	// Register embedded UI routes (static files and main interface)
+	s.ui.RegisterRoutes(s.router)
 }
 
 // Start starts the HTTP server in a goroutine.

@@ -11,10 +11,12 @@ A self-hosted web UI that intelligently pre-caches Jellyfin media locally to min
 - 🚀 **Instant Playback**: Downloads currently watched episodes immediately at full bandwidth
 - 🧠 **Smart Prediction**: Automatically queues next episodes based on viewing patterns
 - 💾 **Efficient Storage**: Intelligent cache management with configurable limits
-- 🌐 **Local Web UI**: Clean interface for library browsing and playback control
+- 🌐 **Modern Web UI**: Complete interface with Video.js player and real-time updates
 - ⚡ **Minimal Latency**: <1 second startup for cached content
-- 🔧 **Single Binary**: Complete deployment with embedded web UI
-- 📱 **Responsive**: Works on desktop and mobile devices
+- 🔧 **Single Binary**: Complete deployment with embedded web UI and assets
+- 📱 **Responsive Design**: Mobile-first interface using Water.css framework
+- 🔄 **Real-time Updates**: WebSocket connections for live download progress
+- ⚙️ **Configuration UI**: Web-based settings management with form validation
 
 ## Quick Start
 

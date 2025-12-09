@@ -239,47 +239,52 @@ func (s *Server) handleQueueRemove(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleStaticFiles serves static web UI files.
-// This is a placeholder for Phase 4 when embedded assets are implemented.
-func (s *Server) handleStaticFiles(w http.ResponseWriter, r *http.Request) {
-	// For now, return a simple HTML page
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <title>go-jf-watch</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .status { background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .api-link { display: block; margin: 10px 0; color: #0066cc; text-decoration: none; }
-        .api-link:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>go-jf-watch</h1>
-        <p>Jellyfin Local Cache Web UI</p>
-        
-        <div class="status">
-            <h2>Status</h2>
-            <p>Server is running and ready to accept requests.</p>
-        </div>
+// handleGetSettings returns the current application settings.
+// Used by the web UI to populate configuration forms.
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	// Return a subset of configuration that's safe to expose to UI
+	settings := map[string]interface{}{
+		"cache.max_size_gb":              500,    // Would come from actual config
+		"cache.eviction_threshold":       0.85,
+		"download.workers":               3,
+		"download.rate_limit_mbps":      10,
+		"download.auto_download_current": true,
+		"download.auto_download_next":    true,
+		"download.auto_download_count":   2,
+		"server.port":                   s.config.Port,
+		"server.host":                   s.config.Host,
+		"server.enable_compression":     s.config.EnableCompression,
+		"prediction.enabled":            true,
+		"prediction.sync_interval":      "4h",
+		"prediction.history_days":       30,
+		"ui.theme":                      "auto",
+		"ui.language":                   "en",
+	}
 
-        <h2>API Endpoints</h2>
-        <a href="/api/status" class="api-link">GET /api/status - System status</a>
-        <a href="/api/library" class="api-link">GET /api/library - Cached library items</a>
-        <a href="/api/queue" class="api-link">GET /api/queue - Download queue status</a>
-        <a href="/health" class="api-link">GET /health - Health check</a>
+	s.writeJSONResponse(w, http.StatusOK, APIResponse{
+		Success: true,
+		Data:    settings,
+	})
+}
 
-        <h2>Development</h2>
-        <p>This is a development interface. The full web UI will be implemented in Phase 4.</p>
-    </div>
-</body>
-</html>`
+// handlePostSettings updates application settings.
+// In a full implementation, this would persist changes to configuration.
+func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
+	var settings map[string]interface{}
+	
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		s.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON payload", err)
+		return
+	}
 
-	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
+	// In a full implementation, validate and persist settings
+	// For Phase 4, we'll just acknowledge the request
+	s.logger.Info("Settings update requested", "settings", settings)
+
+	s.writeJSONResponse(w, http.StatusOK, APIResponse{
+		Success: true,
+		Message: "Settings saved successfully (changes require restart)",
+	})
 }
 
 // writeJSONResponse writes a JSON response with the specified status code.

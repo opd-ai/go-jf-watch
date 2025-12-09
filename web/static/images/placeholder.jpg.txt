@@ -1,0 +1,10 @@
+# Placeholder Image
+
+This would contain a placeholder image for media items without thumbnails.
+
+In a real implementation, this would be a small PNG or SVG image showing:
+- A film/TV icon
+- Gray background
+- "No Image Available" text
+
+For development/testing purposes, the UI will handle missing images gracefully.

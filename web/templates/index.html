@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Jellyfin Local Cache</title>
+    <link rel="stylesheet" href="/static/css/water.css">
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Jellyfin Local Cache</h1>
+            <p>Intelligent media pre-caching for instant playback</p>
+            <div class="status-bar">
+                <span>Status: <span id="connection-status" class="status-badge">Connecting...</span></span>
+                <span>Cache: <span id="cache-size">0</span> GB</span>
+                <span>Items: <span id="cache-items">0</span></span>
+                <span>Downloads: <span id="active-downloads">0</span></span>
+            </div>
+        </header>
+
+        <nav class="navigation">
+            <a href="#" class="nav-link active" data-view="library">📚 Library</a>
+            <a href="#" class="nav-link" data-view="queue">📥 Download Queue</a>
+            <a href="#" class="nav-link" data-view="settings">⚙️ Settings</a>
+        </nav>
+
+        <!-- Video Player Container -->
+        <div id="video-container" class="video-container" style="display: none;">
+            <video
+                id="video-player"
+                class="video-js vjs-default-skin"
+                controls
+                preload="auto"
+                data-setup='{"fluid": true}'>
+                <p class="vjs-no-js">
+                    To view this video please enable JavaScript, and consider upgrading to a web browser that
+                    <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>.
+                </p>
+            </video>
+        </div>
+
+        <!-- Library View -->
+        <div id="library-view" data-view="library">
+            <div class="view-header">
+                <h2>Media Library</h2>
+                <div class="controls">
+                    <input type="text" id="search-input" placeholder="Search library..." />
+                    <button onclick="jfWatch.loadLibrary()">🔄 Refresh</button>
+                </div>
+            </div>
+            <div id="library-container">
+                <div id="library-grid" class="grid">
+                    <!-- Library items will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Queue View -->
+        <div id="queue-view" data-view="queue" style="display: none;">
+            <div class="view-header">
+                <h2>Download Queue</h2>
+                <div class="controls">
+                    <button onclick="jfWatch.loadQueue()">🔄 Refresh</button>
+                    <button onclick="jfWatch.clearCompletedDownloads()">🧹 Clear Completed</button>
+                </div>
+            </div>
+            <div id="queue-container">
+                <div id="queue-list">
+                    <!-- Queue items will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings View -->
+        <div id="settings-view" data-view="settings" style="display: none;">
+            <div class="view-header">
+                <h2>Settings</h2>
+            </div>
+            <form id="settings-form">
+                <div class="settings-group">
+                    <h3>Jellyfin Connection</h3>
+                    <div class="form-row">
+                        <label for="jellyfin-url">Server URL:</label>
+                        <input type="url" id="jellyfin-url" name="jellyfin.server_url" 
+                               placeholder="https://jellyfin.example.com" required>
+                    </div>
+                    <div class="form-row">
+                        <label for="jellyfin-api-key">API Key:</label>
+                        <input type="password" id="jellyfin-api-key" name="jellyfin.api_key" 
+                               placeholder="Your Jellyfin API key" required>
+                    </div>
+                    <div class="form-row">
+                        <label for="jellyfin-user-id">User ID:</label>
+                        <input type="text" id="jellyfin-user-id" name="jellyfin.user_id" 
+                               placeholder="Your Jellyfin user ID" required>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Cache Settings</h3>
+                    <div class="form-row">
+                        <label for="cache-directory">Cache Directory:</label>
+                        <input type="text" id="cache-directory" name="cache.directory" 
+                               placeholder="./cache" required>
+                    </div>
+                    <div class="form-row">
+                        <label for="cache-max-size">Max Size (GB):</label>
+                        <input type="number" id="cache-max-size" name="cache.max_size_gb" 
+                               min="1" max="10000" value="500">
+                    </div>
+                    <div class="form-row">
+                        <label for="eviction-threshold">Eviction Threshold:</label>
+                        <input type="number" id="eviction-threshold" name="cache.eviction_threshold" 
+                               min="0.1" max="1.0" step="0.05" value="0.85">
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Download Settings</h3>
+                    <div class="form-row">
+                        <label for="download-workers">Concurrent Downloads:</label>
+                        <input type="number" id="download-workers" name="download.workers" 
+                               min="1" max="10" value="3">
+                    </div>
+                    <div class="form-row">
+                        <label for="rate-limit">Rate Limit (Mbps):</label>
+                        <input type="number" id="rate-limit" name="download.rate_limit_mbps" 
+                               min="1" max="1000" value="10">
+                    </div>
+                    <div class="form-row">
+                        <label for="auto-download-current">Auto-download current episode:</label>
+                        <input type="checkbox" id="auto-download-current" name="download.auto_download_current" 
+                               checked>
+                    </div>
+                    <div class="form-row">
+                        <label for="auto-download-next">Auto-download next episodes:</label>
+                        <input type="checkbox" id="auto-download-next" name="download.auto_download_next" 
+                               checked>
+                    </div>
+                    <div class="form-row">
+                        <label for="auto-download-count">Episodes to queue:</label>
+                        <input type="number" id="auto-download-count" name="download.auto_download_count" 
+                               min="1" max="10" value="2">
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Server Settings</h3>
+                    <div class="form-row">
+                        <label for="server-port">Port:</label>
+                        <input type="number" id="server-port" name="server.port" 
+                               min="1" max="65535" value="8080">
+                    </div>
+                    <div class="form-row">
+                        <label for="server-host">Host:</label>
+                        <input type="text" id="server-host" name="server.host" 
+                               placeholder="0.0.0.0" value="0.0.0.0">
+                    </div>
+                    <div class="form-row">
+                        <label for="enable-compression">Enable Compression:</label>
+                        <input type="checkbox" id="enable-compression" name="server.enable_compression" 
+                               checked>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Prediction Settings</h3>
+                    <div class="form-row">
+                        <label for="prediction-enabled">Enable Predictive Downloads:</label>
+                        <input type="checkbox" id="prediction-enabled" name="prediction.enabled" 
+                               checked>
+                    </div>
+                    <div class="form-row">
+                        <label for="sync-interval">Library Sync Interval:</label>
+                        <select id="sync-interval" name="prediction.sync_interval">
+                            <option value="1h">1 hour</option>
+                            <option value="2h">2 hours</option>
+                            <option value="4h" selected>4 hours</option>
+                            <option value="8h">8 hours</option>
+                            <option value="24h">24 hours</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="history-days">Viewing History (days):</label>
+                        <input type="number" id="history-days" name="prediction.history_days" 
+                               min="1" max="365" value="30">
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h3>User Interface</h3>
+                    <div class="form-row">
+                        <label for="ui-theme">Theme:</label>
+                        <select id="ui-theme" name="ui.theme">
+                            <option value="auto" selected>Auto (System)</option>
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="ui-language">Language:</label>
+                        <select id="ui-language" name="ui.language">
+                            <option value="en" selected>English</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit">💾 Save Settings</button>
+                    <button type="button" onclick="jfWatch.loadSettings()">🔄 Reset</button>
+                </div>
+            </form>
+        </div>
+
+        <footer>
+            <p>
+                <small>
+                    go-jf-watch v{{.Version}} | 
+                    <a href="https://github.com/opd-ai/go-jf-watch" target="_blank">GitHub</a> |
+                    <a href="/api/status" target="_blank">API Status</a>
+                </small>
+            </p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
