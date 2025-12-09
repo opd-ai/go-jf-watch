@@ -26,14 +26,20 @@ import (
 // It maintains viewing history and user preferences to make intelligent
 // predictions about what content should be pre-cached.
 type Predictor struct {
-	storage    *storage.Manager
-	logger     *slog.Logger
-	config     *config.PredictionConfig
+	storage         *storage.Manager
+	logger          *slog.Logger
+	config          *config.PredictionConfig
+	downloadManager DownloadQueuer
 	
 	// Cached analysis data
 	viewingHistory []ViewingSession
 	preferences    UserPreferences
 	lastSync       time.Time
+}
+
+// DownloadQueuer interface for queueing downloads (implemented by Manager)
+type DownloadQueuer interface {
+	QueueDownload(ctx context.Context, mediaID string, priority int) error
 }
 
 // ViewingSession represents a single media viewing session with metadata.
@@ -107,6 +113,11 @@ func NewPredictor(storage *storage.Manager, config *config.PredictionConfig, log
 			PreferredViewTimes: make([]TimeWindow, 0),
 		},
 	}
+}
+
+// SetDownloadManager sets the download manager for queueing predicted downloads
+func (p *Predictor) SetDownloadManager(dm DownloadQueuer) {
+	p.downloadManager = dm
 }
 
 // OnPlaybackStart handles immediate prediction when user starts watching content.
@@ -222,8 +233,17 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 					"episode", episode.Episode)
 				
 				// Add to download queue with Priority 1
-				// This would integrate with the download manager
-				// For now, we'll log the prediction
+				if p.downloadManager != nil {
+					if err := p.downloadManager.QueueDownload(ctx, episode.ID, 1); err != nil {
+						p.logger.Error("Failed to queue next episode download",
+							"episode_id", episode.ID,
+							"error", err)
+					} else {
+						p.logger.Info("Successfully queued next episode download",
+							"episode_id", episode.ID,
+							"priority", 1)
+					}
+				}
 			}
 			break
 		}
@@ -240,6 +260,15 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 					"episode_id", firstEpisode.ID,
 					"season", firstEpisode.Season,
 					"episode", firstEpisode.Episode)
+					
+				// Add to download queue with Priority 2 (lower priority than next episode)
+				if p.downloadManager != nil {
+					if err := p.downloadManager.QueueDownload(ctx, firstEpisode.ID, 2); err != nil {
+						p.logger.Error("Failed to queue next season episode download",
+							"episode_id", firstEpisode.ID,
+							"error", err)
+					}
+				}
 			}
 		}
 	}

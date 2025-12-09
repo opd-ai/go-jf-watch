@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,13 +32,14 @@ import (
 // Manager orchestrates workers and manages download queue state.
 // It implements the worker pool pattern with priority-based scheduling.
 type Manager struct {
-	workers    int
-	jobs       chan *DownloadJob
-	results    chan *DownloadResult
-	limiter    *rate.Limiter
-	storage    *storage.Manager
-	logger     *slog.Logger
-	config     *config.DownloadConfig
+	workers          int
+	jobs             chan *DownloadJob
+	results          chan *DownloadResult
+	limiter          *rate.Limiter
+	storage          *storage.Manager
+	logger           *slog.Logger
+	config           *config.DownloadConfig
+	progressReporter ProgressReporter
 	
 	// Worker management
 	ctx        context.Context
@@ -72,6 +75,11 @@ type DownloadResult struct {
 // ProgressCallback is called during download to report progress.
 type ProgressCallback func(jobID string, downloaded, total int64)
 
+// ProgressReporter interface for sending progress updates (e.g., to WebSocket clients)
+type ProgressReporter interface {
+	BroadcastProgress(mediaID, status, message string, progress float64)
+}
+
 // New creates a new download manager with the specified configuration.
 // It initializes the worker pool but doesn't start workers until Start() is called.
 func New(cfg *config.DownloadConfig, storage *storage.Manager, logger *slog.Logger) *Manager {
@@ -93,6 +101,13 @@ func New(cfg *config.DownloadConfig, storage *storage.Manager, logger *slog.Logg
 		ctx:     ctx,
 		cancel:  cancel,
 	}
+}
+
+// SetProgressReporter sets the progress reporter for WebSocket updates
+func (m *Manager) SetProgressReporter(reporter ProgressReporter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.progressReporter = reporter
 }
 
 // Start begins processing downloads with the configured number of workers.
@@ -289,6 +304,9 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 		"media_id", job.MediaID,
 		"url", job.URL,
 		"local_path", job.LocalPath)
+		
+	// Report download start
+	m.reportProgress(job.MediaID, 0, "downloading", "Download started")
 	
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(job.LocalPath), 0755); err != nil {
@@ -317,6 +335,7 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 	
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		m.reportProgress(job.MediaID, 0, "failed", fmt.Sprintf("HTTP error: %d", resp.StatusCode))
 		return result
 	}
 	
@@ -332,11 +351,19 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 		fmt.Sprintf("Downloading %s", filepath.Base(job.LocalPath)),
 	)
 	
-	// Create rate-limited reader
-	rateLimitedReader := m.createRateLimitedReader(resp.Body)
+	// Create rate-limited reader (bypass for Priority 0 - currently playing)
+	var dataReader io.Reader
+	if job.Priority == 0 {
+		// Priority 0 (currently playing) gets full bandwidth
+		m.logger.Debug("Using full bandwidth for Priority 0 download", "job_id", job.ID)
+		dataReader = resp.Body
+	} else {
+		// All other priorities use rate limiting
+		dataReader = m.createRateLimitedReader(resp.Body)
+	}
 	
 	// Wrap with progress tracking
-	progressReader := io.TeeReader(rateLimitedReader, bar)
+	progressReader := io.TeeReader(dataReader, bar)
 	
 	// Use atomic write to ensure file integrity
 	err = atomic.WriteFile(job.LocalPath, progressReader)
@@ -356,14 +383,20 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 		"duration", result.Duration,
 		"bytes", result.BytesRead)
 	
+	// Report download completion
+	m.reportProgress(job.MediaID, 100, "completed", "Download completed successfully")
+	
 	return result
 }
 
 // createRateLimitedReader wraps an io.Reader with rate limiting.
 func (m *Manager) createRateLimitedReader(r io.Reader) io.Reader {
+	// Get current rate limit based on time and configuration
+	currentLimit := m.getCurrentRateLimit()
+	
 	return &rateLimitedReader{
 		reader:  r,
-		limiter: m.limiter,
+		limiter: currentLimit,
 		ctx:     m.ctx,
 	}
 }
@@ -382,6 +415,100 @@ func (r *rateLimitedReader) Read(buf []byte) (int, error) {
 	}
 	
 	return r.reader.Read(buf)
+}
+
+// getCurrentRateLimit returns the appropriate rate limiter based on current time and configuration
+func (m *Manager) getCurrentRateLimit() *rate.Limiter {
+	// Check if we're in peak hours
+	if m.isCurrentlyPeakHours() {
+		// During peak hours, use reduced bandwidth
+		peakBandwidth := float64(m.config.RateLimitMbps) * float64(m.config.RateLimitSchedule.PeakLimitPercent) / 100.0
+		bytesPerSecond := rate.Limit(peakBandwidth * 1024 * 1024 / 8)
+		burstSize := int(bytesPerSecond * 5) // 5 second burst
+		
+		m.logger.Debug("Using peak hours rate limit", 
+			"peak_bandwidth_mbps", peakBandwidth,
+			"peak_limit_percent", m.config.RateLimitSchedule.PeakLimitPercent)
+		
+		return rate.NewLimiter(bytesPerSecond, burstSize)
+	}
+	
+	// Outside peak hours, use full bandwidth
+	return m.limiter
+}
+
+// isCurrentlyPeakHours checks if the current time falls within configured peak hours
+func (m *Manager) isCurrentlyPeakHours() bool {
+	if m.config.RateLimitSchedule.PeakHours == "" {
+		return false // No peak hours configured
+	}
+	
+	// Parse peak hours format "HH:MM-HH:MM"
+	peakStart, peakEnd, err := parsePeakHours(m.config.RateLimitSchedule.PeakHours)
+	if err != nil {
+		m.logger.Warn("Invalid peak hours format, ignoring peak hour limits", 
+			"peak_hours", m.config.RateLimitSchedule.PeakHours, 
+			"error", err)
+		return false
+	}
+	
+	now := time.Now()
+	currentTime := now.Hour()*100 + now.Minute() // Convert to HHMM format
+	
+	// Handle case where peak hours span midnight
+	if peakStart > peakEnd {
+		return currentTime >= peakStart || currentTime <= peakEnd
+	}
+	
+	return currentTime >= peakStart && currentTime <= peakEnd
+}
+
+// parsePeakHours parses a time range string like "06:00-23:00" into start and end times in HHMM format
+func parsePeakHours(peakHours string) (int, int, error) {
+	// Expected format: "06:00-23:00"
+	parts := strings.Split(peakHours, "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid format, expected HH:MM-HH:MM")
+	}
+	
+	startTime, err := parseTimeToHHMM(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid start time: %w", err)
+	}
+	
+	endTime, err := parseTimeToHHMM(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid end time: %w", err)
+	}
+	
+	return startTime, endTime, nil
+}
+
+// parseTimeToHHMM converts a time string like "06:00" to HHMM integer format (600)
+func parseTimeToHHMM(timeStr string) (int, error) {
+	timeParts := strings.Split(timeStr, ":")
+	if len(timeParts) != 2 {
+		return 0, fmt.Errorf("invalid time format, expected HH:MM")
+	}
+	
+	hour, err := strconv.Atoi(timeParts[0])
+	if err != nil || hour < 0 || hour > 23 {
+		return 0, fmt.Errorf("invalid hour: %s", timeParts[0])
+	}
+	
+	minute, err := strconv.Atoi(timeParts[1])
+	if err != nil || minute < 0 || minute > 59 {
+		return 0, fmt.Errorf("invalid minute: %s", timeParts[1])
+	}
+	
+	return hour*100 + minute, nil
+}
+
+// reportProgress sends a progress update via the progress reporter (WebSocket)
+func (m *Manager) reportProgress(mediaID string, progress float64, status, message string) {
+	if m.progressReporter != nil {
+		m.progressReporter.BroadcastProgress(mediaID, status, message, progress)
+	}
 }
 
 // resultProcessor handles completed download results.
@@ -555,6 +682,12 @@ func (m *Manager) GetQueueStats() QueueStats {
 		CompletedToday:  0, // Would track in storage
 		FailedToday:     0, // Would track in storage
 	}
+}
+
+// GetQueueItems returns all queue items from storage.
+func (m *Manager) GetQueueItems() ([]*storage.QueueItem, error) {
+	// Get all queue items regardless of status
+	return m.storage.GetQueueItems("")
 }
 
 // GetStatus returns the current status of the download manager.

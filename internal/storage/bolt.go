@@ -100,6 +100,15 @@ type StorageStats struct {
 	LastUpdated      time.Time     `json:"last_updated"`
 }
 
+// CacheStats represents cache statistics for system monitoring.
+type CacheStats struct {
+	TotalSizeBytes int64     `json:"total_size_bytes"`
+	TotalItems     int       `json:"total_items"`
+	LastSync       time.Time `json:"last_sync"`
+	Size           int64     `json:"size"`           // Alias for TotalSizeBytes
+	ItemCount      int       `json:"item_count"`     // Alias for TotalItems
+}
+
 // EpisodeInfo contains basic information about a TV episode.
 // Used by predictor to find next episodes in a series.
 type EpisodeInfo struct {
@@ -637,4 +646,48 @@ func (m *Manager) StoreViewingSession(userID string, session ViewingSession) err
 
 		return bucket.Put([]byte(key), data)
 	})
+}
+
+// GetCacheStats returns cache statistics for system monitoring.
+func (m *Manager) GetCacheStats() (*CacheStats, error) {
+	var stats CacheStats
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		// Get downloads bucket to calculate statistics
+		bucket := tx.Bucket(bucketDownloads)
+		if bucket == nil {
+			// No downloads yet, return zero stats
+			return nil
+		}
+		
+		var totalSize int64
+		var itemCount int
+		
+		// Iterate through all download records
+		bucket.ForEach(func(k, v []byte) error {
+			var record DownloadRecord
+			if err := json.Unmarshal(v, &record); err != nil {
+				m.logger.Warn("Failed to unmarshal download record", "key", string(k), "error", err)
+				return nil // Continue iteration
+			}
+			
+			totalSize += record.Size
+			itemCount++
+			return nil
+		})
+		
+		stats.TotalSizeBytes = totalSize
+		stats.TotalItems = itemCount
+		stats.Size = totalSize // Alias
+		stats.ItemCount = itemCount // Alias
+		stats.LastSync = time.Now() // TODO: Track actual last sync time
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cache stats: %w", err)
+	}
+	
+	return &stats, nil
 }

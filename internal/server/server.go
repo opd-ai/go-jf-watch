@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/opd-ai/go-jf-watch/internal/downloader"
+	"github.com/opd-ai/go-jf-watch/internal/jellyfin"
 	"github.com/opd-ai/go-jf-watch/internal/storage"
 	"github.com/opd-ai/go-jf-watch/internal/ui"
 	"github.com/opd-ai/go-jf-watch/pkg/config"
@@ -24,17 +27,24 @@ import (
 // It provides REST API endpoints, video streaming, WebSocket connections
 // for real-time download progress updates, and embedded web UI.
 type Server struct {
-	config      *config.ServerConfig
-	logger      *slog.Logger
-	storage     *storage.Manager
-	ui          *ui.UI
-	httpServer  *http.Server
-	router      chi.Router
+	config          *config.ServerConfig
+	logger          *slog.Logger
+	storage         *storage.Manager
+	downloadManager *downloader.Manager
+	jellyfinClient  *jellyfin.Client
+	ui              *ui.UI
+	httpServer      *http.Server
+	router          chi.Router
+	startTime       time.Time
+	
+	// WebSocket client management
+	wsClients map[interface{}]bool
+	wsMutex   sync.RWMutex
 }
 
 // New creates a new HTTP server instance with the provided configuration.
 // The server is configured with middleware for logging, CORS, and request recovery.
-func New(cfg *config.ServerConfig, storage *storage.Manager, logger *slog.Logger, version string) (*Server, error) {
+func New(cfg *config.ServerConfig, storage *storage.Manager, downloadManager *downloader.Manager, jellyfinClient *jellyfin.Client, logger *slog.Logger, version string) (*Server, error) {
 	// Initialize embedded UI
 	uiHandler, err := ui.New(version)
 	if err != nil {
@@ -42,10 +52,14 @@ func New(cfg *config.ServerConfig, storage *storage.Manager, logger *slog.Logger
 	}
 
 	s := &Server{
-		config:  cfg,
-		logger:  logger,
-		storage: storage,
-		ui:      uiHandler,
+		config:          cfg,
+		logger:          logger,
+		storage:         storage,
+		downloadManager: downloadManager,
+		jellyfinClient:  jellyfinClient,
+		ui:              uiHandler,
+		startTime:       time.Now(),
+	s.wsClients:       make(map[interface{}]bool),
 	}
 
 	// Create router with middleware
@@ -159,6 +173,41 @@ func (s *Server) Stop() error {
 
 	s.logger.Info("HTTP server stopped successfully")
 	return nil
+}
+
+// WebSocket client management methods
+
+// registerWSClient adds a client to the registry
+func (s *Server) registerWSClient(client interface{}) {
+	s.wsMutex.Lock()
+	defer s.wsMutex.Unlock()
+	
+	s.wsClients[client] = true
+	s.logger.Debug("WebSocket client registered", "client_count", len(s.wsClients))
+}
+
+// unregisterWSClient removes a client from the registry
+func (s *Server) unregisterWSClient(client interface{}) {
+	s.wsMutex.Lock()
+	defer s.wsMutex.Unlock()
+	
+	if _, ok := s.wsClients[client]; ok {
+		delete(s.wsClients, client)
+		s.logger.Debug("WebSocket client unregistered", "client_count", len(s.wsClients))
+	}
+}
+
+// BroadcastProgress wrapper method to match ProgressReporter interface
+func (s *Server) BroadcastProgress(mediaID, status, message string, progress float64) {
+	// Create ProgressUpdate and broadcast via WebSocket
+	update := ProgressUpdate{
+		Type:     "download",
+		MediaID:  mediaID,
+		Progress: progress,
+		Status:   status,
+		Message:  message,
+	}
+	s.BroadcastProgressUpdate(update)
 }
 
 // loggingMiddleware creates a structured logging middleware for HTTP requests.

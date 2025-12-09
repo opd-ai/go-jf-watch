@@ -1,6 +1,6 @@
 module github.com/opd-ai/go-jf-watch
 
-go 1.21
+go 1.22.5
 
 require (
 	github.com/go-chi/chi/v5 v5.0.11
@@ -13,3 +13,5 @@ require (
 	golang.org/x/time v0.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/sj14/jellyfin-go v0.4.2 // indirect

@@ -60,6 +60,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("WebSocket client connected", "remote_addr", r.RemoteAddr)
 
+	// Register client
+	s.registerWSClient(client)
+
 	// Start client goroutines
 	go client.writePump()
 	go client.readPump()
@@ -75,6 +78,7 @@ func (c *WebSocketClient) writePump() {
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
+		c.server.unregisterWSClient(c)
 		c.logger.Debug("WebSocket write pump stopped")
 	}()
 
@@ -181,15 +185,34 @@ func (c *WebSocketClient) sendInitialStatus() {
 	}
 }
 
-// BroadcastProgress sends a progress update to all connected WebSocket clients.
+// BroadcastProgressUpdate sends a progress update to all connected WebSocket clients.
 // This method will be called by the download manager to notify clients of updates.
-func (s *Server) BroadcastProgress(update ProgressUpdate) {
-	// TODO: Implement client registry and broadcast mechanism
-	// This will be implemented when the download manager integration is complete
+func (s *Server) BroadcastProgressUpdate(update ProgressUpdate) {
+	update.Timestamp = time.Now()
+	
+	s.wsMutex.RLock()
+	clients := make([]*WebSocketClient, 0, len(s.wsClients))
+	for client := range s.wsClients {
+		if wsClient, ok := client.(*WebSocketClient); ok {
+			clients = append(clients, wsClient)
+		}
+	}
+	s.wsMutex.RUnlock()
+	
 	s.logger.Debug("Broadcasting progress update", 
 		"type", update.Type,
 		"media_id", update.MediaID,
-		"progress", update.Progress)
+		"progress", update.Progress,
+		"client_count", len(clients))
+	
+	// Send to all clients
+	for _, client := range clients {
+		select {
+		case client.send <- update:
+		default:
+			client.logger.Warn("Failed to send broadcast - client channel full")
+		}
+	}
 }
 
 // SendProgressToClient sends a progress update to a specific client.

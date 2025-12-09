@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/sj14/jellyfin-go"
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
 
@@ -17,20 +18,29 @@ type Client struct {
 	config *config.JellyfinConfig
 	logger *slog.Logger
 	
-	// TODO: Add jellyfin-go client when dependency is available
-	// client *jellyfin.Client
+	// Jellyfin API client
+	client *jellyfin.Client
 	
 	// Session management
 	sessionToken string
 	tokenExpiry  time.Time
+	connected    bool
 }
 
 // New creates a new Jellyfin client wrapper with the provided configuration.
 // It initializes the client but does not perform authentication until Connect is called.
 func New(cfg *config.JellyfinConfig, logger *slog.Logger) *Client {
+	// Create jellyfin client with server URL
+	jellyfinClient, err := jellyfin.NewClient(cfg.ServerURL)
+	if err != nil {
+		logger.Error("Failed to create jellyfin client", "error", err)
+		// Return client anyway, error will surface during Connect
+	}
+	
 	return &Client{
 		config: cfg,
 		logger: logger,
+		client: jellyfinClient,
 	}
 }
 
@@ -41,10 +51,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		"server_url", c.config.ServerURL,
 		"user_id", c.config.UserID)
 
-	// TODO: Implement actual Jellyfin connection when dependency is available
-	// This is a placeholder implementation for Phase 1
-	
-	// Simulate connection validation
+	// Validate configuration
 	if c.config.ServerURL == "" {
 		return fmt.Errorf("server URL is empty")
 	}
@@ -56,20 +63,17 @@ func (c *Client) Connect(ctx context.Context) error {
 	if c.config.UserID == "" {
 		return fmt.Errorf("user ID is empty")
 	}
-
-	// Simulate successful connection
-	c.logger.Info("Successfully connected to Jellyfin server")
 	
-	return nil
-}
+	if c.client == nil {\n\t\treturn fmt.Errorf(\"jellyfin client not initialized\")\n\t}\n\n\t// Set API key for authentication\n\tc.client.SetAPIKey(c.config.APIKey)\n\n\t// Test connection by getting server info\n\t_, err := c.client.GetSystemInfo()\n\tif err != nil {\n\t\treturn fmt.Errorf(\"failed to connect to jellyfin server: %w\", err)\n\t}\n\n\tc.connected = true\n\tc.logger.Info(\"Successfully connected to Jellyfin server\")\n\t\n\treturn nil\n}"
 
 // TestConnection validates the connection to Jellyfin without side effects.
 // Returns an error if the server is unreachable or authentication fails.
 func (c *Client) TestConnection(ctx context.Context) error {
 	c.logger.Debug("Testing Jellyfin server connection")
 	
-	// TODO: Implement actual connection test when dependency is available
-	// For now, just validate configuration
+	if c.client == nil {
+		return fmt.Errorf("jellyfin client not initialized")
+	}
 	
 	if c.config.ServerURL == "" {
 		return fmt.Errorf("server URL not configured")
@@ -79,14 +83,20 @@ func (c *Client) TestConnection(ctx context.Context) error {
 		return fmt.Errorf("API key not configured")
 	}
 	
+	// Test connection with real API call
+	c.client.SetAPIKey(c.config.APIKey)
+	_, err := c.client.GetSystemInfo()
+	if err != nil {
+		return fmt.Errorf("jellyfin connection test failed: %w", err)
+	}
+	
 	c.logger.Info("Jellyfin connection test successful")
 	return nil
 }
 
 // IsConnected returns true if the client has an active session.
 func (c *Client) IsConnected() bool {
-	// TODO: Implement actual session check when dependency is available
-	return c.sessionToken != "" && time.Now().Before(c.tokenExpiry)
+	return c.connected && c.client != nil
 }
 
 // Disconnect closes the connection and clears the session.
@@ -94,6 +104,11 @@ func (c *Client) Disconnect() {
 	c.logger.Info("Disconnecting from Jellyfin server")
 	c.sessionToken = ""
 	c.tokenExpiry = time.Time{}
+	c.connected = false
+	if c.client != nil {
+		// Clear API key
+		c.client.SetAPIKey("")
+	}
 }
 
 // GetServerInfo returns basic information about the Jellyfin server.
@@ -101,14 +116,21 @@ func (c *Client) Disconnect() {
 func (c *Client) GetServerInfo(ctx context.Context) (*ServerInfo, error) {
 	c.logger.Debug("Fetching Jellyfin server information")
 	
-	// TODO: Implement actual API call when dependency is available
-	// Return mock data for Phase 1
+	if c.client == nil {
+		return nil, fmt.Errorf("jellyfin client not initialized")
+	}
+	
+	// Get system info from Jellyfin API
+	sysInfo, err := c.client.GetSystemInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %w", err)
+	}
 	
 	return &ServerInfo{
-		Name:           "Mock Jellyfin Server",
-		Version:        "10.8.0",
-		OperatingSystem: "Linux",
-		ID:             "mock-server-id",
+		Name:           sysInfo.ServerName,
+		Version:        sysInfo.Version,
+		OperatingSystem: sysInfo.OperatingSystem,
+		ID:             sysInfo.ID,
 	}, nil
 }
 

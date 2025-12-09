@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,23 +74,20 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get queue statistics (placeholder - will be implemented with download manager)
-	queueStats := struct {
-		Length     int `json:"length"`
-		ActiveJobs int `json:"active_jobs"`
-	}{
-		Length:     0, // TODO: Get from download manager
-		ActiveJobs: 0, // TODO: Get from download manager
-	}
+	// Get queue statistics from download manager
+	queueStats := s.downloadManager.GetQueueStats()
+	
+	// Calculate uptime
+	uptime := time.Since(s.startTime)
 
 	status := SystemStatus{
 		Status:      "running",
-		Version:     "0.1.0", // TODO: Get from build info
-		Uptime:      time.Since(time.Now().Add(-1*time.Hour)).String(), // TODO: Track actual uptime
+		Version:     "1.0.0", // TODO: Get from build info
+		Uptime:      formatDuration(uptime),
 		CacheSize:   cacheStats.TotalSizeBytes,
 		CacheItems:  cacheStats.TotalItems,
-		QueueLength: queueStats.Length,
-		ActiveJobs:  queueStats.ActiveJobs,
+		QueueLength: queueStats.QueueSize,
+		ActiveJobs:  queueStats.ActiveDownloads,
 		LastSync:    time.Now().Add(-30 * time.Minute), // TODO: Get from sync manager
 	}
 
@@ -157,19 +155,26 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 // handleQueueStatus returns the current download queue status.
 // Shows all queued items with their priority, status, and progress.
 func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
-	// TODO: Get actual queue items from download manager
-	// For now, return placeholder data
-	queueItems := []QueueItem{
-		{
-			ID:       "queue-1",
-			MediaID:  "media-123",
-			Title:    "Example Movie",
-			Priority: 1,
-			Status:   "downloading",
-			Progress: 45.7,
-			AddedAt:  time.Now().Add(-10 * time.Minute),
-			Size:     1024 * 1024 * 1024 * 2, // 2GB
-		},
+	// Get actual queue items from download manager
+	queueData, err := s.downloadManager.GetQueueItems()
+	if err != nil {
+		s.writeErrorResponse(w, http.StatusInternalServerError, "Failed to get queue status", err)
+		return
+	}
+	
+	// Convert storage queue items to API response format
+	queueItems := make([]QueueItem, 0, len(queueData))
+	for _, item := range queueData {
+		queueItems = append(queueItems, QueueItem{
+			ID:       item.ID,
+			MediaID:  item.MediaID,
+			Title:    getMediaTitle(item.MediaID), // Helper function to get title
+			Priority: item.Priority,
+			Status:   item.Status,
+			Progress: item.Progress,
+			AddedAt:  item.CreatedAt,
+			Size:     item.Size,
+		})
 	}
 
 	s.writeJSONResponse(w, http.StatusOK, APIResponse{
@@ -198,16 +203,23 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 		req.Priority = 5 // Default to manual priority
 	}
 
-	// TODO: Add to download manager queue
+	// Add to download manager queue
 	s.logger.Info("Adding item to download queue",
 		"media_id", req.MediaID,
 		"priority", req.Priority)
 
-	// For now, return success
+	ctx := r.Context()
+	err := s.downloadManager.QueueDownload(ctx, req.MediaID, req.Priority)
+	if err != nil {
+		s.writeErrorResponse(w, http.StatusInternalServerError, "Failed to add item to queue", err)
+		return
+	}
+
+	// Return success with basic item info
 	queueItem := QueueItem{
-		ID:       "queue-" + req.MediaID,
+		ID:       fmt.Sprintf("%s-%d", req.MediaID, time.Now().Unix()),
 		MediaID:  req.MediaID,
-		Title:    "Media Item " + req.MediaID,
+		Title:    getMediaTitle(req.MediaID),
 		Priority: req.Priority,
 		Status:   "queued",
 		Progress: 0,
@@ -314,4 +326,30 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, statusCode int, messa
 		Error:   errorMsg,
 		Message: message,
 	})
+}
+
+// Helper functions
+
+// getMediaTitle retrieves the title for a media ID from storage or jellyfin
+func getMediaTitle(mediaID string) string {
+	// TODO: Query storage or jellyfin for actual title
+	// For now, return a formatted media ID
+	return "Media Item " + mediaID
+}
+
+// formatDuration formats a duration into a human-readable string
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	} else if d < time.Hour {
+		return fmt.Sprintf("%.0fm", d.Minutes())
+	} else if d < 24*time.Hour {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	} else {
+		days := int(d.Hours()) / 24
+		hours := int(d.Hours()) % 24
+		return fmt.Sprintf("%dd %dh", days, hours)
+	}
 }

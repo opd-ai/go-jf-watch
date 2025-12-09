@@ -29,9 +29,6 @@ func NewAuthManager(client *Client, logger *slog.Logger) *AuthManager {
 func (a *AuthManager) Authenticate(ctx context.Context) error {
 	a.logger.Info("Authenticating with Jellyfin server")
 	
-	// TODO: Implement actual authentication when jellyfin-go is available
-	// This is a placeholder implementation for Phase 1
-	
 	// Validate that we have the necessary credentials
 	if a.client.config.APIKey == "" {
 		return fmt.Errorf("API key is required for authentication")
@@ -41,41 +38,12 @@ func (a *AuthManager) Authenticate(ctx context.Context) error {
 		return fmt.Errorf("user ID is required for authentication")
 	}
 	
-	// Simulate successful authentication
-	a.sessionToken = "mock-session-token"
-	a.tokenExpiry = time.Now().Add(24 * time.Hour)
-	a.client.sessionToken = a.sessionToken
-	a.client.tokenExpiry = a.tokenExpiry
-	
-	a.logger.Info("Authentication successful", 
-		"token_expires", a.tokenExpiry.Format(time.RFC3339))
-	
-	return nil
-}
+	if a.client.client == nil {\n\t\treturn fmt.Errorf(\"jellyfin client not initialized\")\n\t}\n\n\t// Set API key for authentication\n\ta.client.client.SetAPIKey(a.client.config.APIKey)\n\n\t// Verify authentication by getting user info\n\t_, err := a.client.client.GetUser(a.client.config.UserID)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"authentication failed: %w\", err)\n\t}\n\n\t// For API key auth, we don't get a session token, but we mark as authenticated\n\ta.sessionToken = a.client.config.APIKey // Use API key as session token\n\ta.tokenExpiry = time.Now().Add(24 * time.Hour) // Assume API keys don't expire quickly\n\ta.client.sessionToken = a.sessionToken\n\ta.client.tokenExpiry = a.tokenExpiry\n\t\n\ta.logger.Info(\"Authentication successful\")\n\t\n\treturn nil\n}"
 
 // RefreshToken refreshes the authentication token if it's close to expiry.
 // Returns true if the token was refreshed, false if refresh wasn't needed.
 func (a *AuthManager) RefreshToken(ctx context.Context) (bool, error) {
-	// Check if token needs refresh (within 1 hour of expiry)
-	if time.Until(a.tokenExpiry) > time.Hour {
-		return false, nil
-	}
-	
-	a.logger.Debug("Refreshing authentication token")
-	
-	// TODO: Implement actual token refresh when jellyfin-go is available
-	// For now, simulate successful refresh
-	
-	oldExpiry := a.tokenExpiry
-	a.tokenExpiry = time.Now().Add(24 * time.Hour)
-	a.client.tokenExpiry = a.tokenExpiry
-	
-	a.logger.Info("Token refreshed successfully",
-		"old_expiry", oldExpiry.Format(time.RFC3339),
-		"new_expiry", a.tokenExpiry.Format(time.RFC3339))
-	
-	return true, nil
-}
+	// Check if token needs refresh (within 1 hour of expiry)\n\tif time.Until(a.tokenExpiry) > time.Hour {\n\t\treturn false, nil\n\t}\n\t\n\ta.logger.Debug(\"Refreshing authentication token\")\n\t\n\t// For API key authentication, we just need to verify the key is still valid\n\tif a.client.client == nil {\n\t\treturn false, fmt.Errorf(\"jellyfin client not initialized\")\n\t}\n\t\n\t// Test if API key is still valid\n\t_, err := a.client.client.GetUser(a.client.config.UserID)\n\tif err != nil {\n\t\treturn false, fmt.Errorf(\"API key validation failed: %w\", err)\n\t}\n\t\n\t// Extend token expiry\n\toldExpiry := a.tokenExpiry\n\ta.tokenExpiry = time.Now().Add(24 * time.Hour)\n\ta.client.tokenExpiry = a.tokenExpiry\n\t\n\ta.logger.Info(\"Token refreshed successfully\",\n\t\t\"old_expiry\", oldExpiry.Format(time.RFC3339),\n\t\t\"new_expiry\", a.tokenExpiry.Format(time.RFC3339))\n\t\n\treturn true, nil\n}"
 
 // IsTokenValid returns true if the current token is valid and not expired.
 func (a *AuthManager) IsTokenValid() bool {
