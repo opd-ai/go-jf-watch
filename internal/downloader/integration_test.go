@@ -60,7 +60,7 @@ func TestPredictionEngineIntegration(t *testing.T) {
 	defer downloadManager.Stop()
 
 	// Test queuing a download through the prediction interface
-	err = downloadManager.QueueDownload(ctx, "test-media-123", 1)
+	_, err = downloadManager.QueueDownload(ctx, "test-media-123", 1)
 	assert.NoError(t, err)
 
 	// Test getting queue statistics
@@ -102,7 +102,7 @@ func TestDownloadManagerQueueOperations(t *testing.T) {
 	defer cancel()
 
 	// Test queuing before manager is started (should fail)
-	err = manager.QueueDownload(ctx, "test-media-1", 1)
+	_, err = manager.QueueDownload(ctx, "test-media-1", 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not running")
 
@@ -112,10 +112,10 @@ func TestDownloadManagerQueueOperations(t *testing.T) {
 	defer manager.Stop()
 
 	// Test successful queuing
-	err = manager.QueueDownload(ctx, "test-media-1", 1)
+	_, err = manager.QueueDownload(ctx, "test-media-1", 1)
 	assert.NoError(t, err)
 
-	err = manager.QueueDownload(ctx, "test-media-2", 0) // Higher priority
+	_, err = manager.QueueDownload(ctx, "test-media-2", 0) // Higher priority
 	assert.NoError(t, err)
 
 	// Test queue statistics
@@ -180,8 +180,8 @@ func TestPredictionScheduling(t *testing.T) {
 		}
 
 		for _, pred := range predictions {
-			if err := downloadManager.QueueDownload(ctx, pred.MediaID, pred.Priority); err != nil {
-				logger.Warn("Failed to queue predicted download", 
+			if _, err := downloadManager.QueueDownload(ctx, pred.MediaID, pred.Priority); err != nil {
+				logger.Warn("Failed to queue predicted download",
 					"media_id", pred.MediaID, "error", err)
 			}
 		}
@@ -196,7 +196,7 @@ func TestPredictionScheduling(t *testing.T) {
 		if err == nil {
 			logger.Info("Storage metrics collected", "total_downloads", stats.TotalDownloads)
 		}
-		
+
 		queueStats := downloadManager.GetQueueStats()
 		logger.Info("Queue metrics collected", "queue_size", queueStats.QueueSize)
 	}
@@ -240,7 +240,7 @@ func TestErrorHandling(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already running")
 
-	// Test stopping manager twice  
+	// Test stopping manager twice
 	err = downloadManager.Stop()
 	assert.NoError(t, err)
 
@@ -248,7 +248,7 @@ func TestErrorHandling(t *testing.T) {
 	assert.NoError(t, err) // Should not error
 
 	// Test queuing after stop
-	err = downloadManager.QueueDownload(ctx, "test-media", 1)
+	_, err = downloadManager.QueueDownload(ctx, "test-media", 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not running")
 }

@@ -77,7 +77,7 @@ go-jf-watch/
 ## 3. Technology Stack & Library Recommendations
 
 ### 3.1 Core Dependencies
-- **Jellyfin API**: `github.com/sj14/jellyfin-go` - Official Go client
+- **Jellyfin API**: Custom HTTP client with authentication and session management
 - **HTTP Server**: `net/http` (stdlib) - Sufficient for single-user deployment
 - **HTTP Router**: `github.com/go-chi/chi/v5` - Lightweight, idiomatic middleware
 - **Embedded KV Store**: `go.etcd.io/bbolt` - Pure Go, embedded, battle-tested
@@ -115,19 +115,19 @@ go-jf-watch/
 
 ### 4.1 Jellyfin API Integration (`internal/jellyfin`)
 
-**Purpose**: Wrapper around `github.com/sj14/jellyfin-go` with authentication persistence and enhanced error handling.
+**Purpose**: Custom HTTP client for Jellyfin API with authentication persistence and enhanced error handling.
 
 **Key Files**:
-- `client.go`: Enhanced client with retry logic and session management
-- `auth.go`: API key and session token management with automatic refresh
-- `types.go`: Additional types for caching and queue management
+- `client.go`: HTTP client with retry logic and session management
+- `auth.go`: API key authentication and session token management
+- `types.go`: Jellyfin-specific types for caching and queue management
 
 **Integration Pattern**:
 ```go
 type Client struct {
-    *jellyfin.Client
-    config *config.Jellyfin
+    config *config.JellyfinConfig
     logger *slog.Logger
+    httpClient *http.Client
 }
 
 func (c *Client) GetLibraryItems(ctx context.Context) ([]MediaItem, error)
@@ -432,7 +432,6 @@ The go-jf-watch project has been fully implemented across 5 major phases:
 ### Core Dependencies
 ```go
 require (
-    github.com/sj14/jellyfin-go v0.x.x      // Jellyfin API client
     github.com/knadh/koanf/v2 v2.x.x        // Configuration management
     github.com/go-chi/chi/v5 v5.x.x         // HTTP router
     go.etcd.io/bbolt v1.x.x                 // Embedded database

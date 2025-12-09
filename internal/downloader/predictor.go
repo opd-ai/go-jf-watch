@@ -38,7 +38,7 @@ type Predictor struct {
 
 // DownloadQueuer interface for queueing downloads (implemented by Manager)
 type DownloadQueuer interface {
-	QueueDownload(ctx context.Context, mediaID string, priority int) error
+	QueueDownload(ctx context.Context, mediaID string, priority int) (string, error)
 }
 
 // ViewingSession represents a single media viewing session with metadata.
@@ -88,7 +88,7 @@ type TimeWindow struct {
 // PredictionResult contains a predicted download recommendation.
 type PredictionResult struct {
 	MediaID       string  `json:"media_id"`
-	Priority      int     `json:"priority"`   // 0-5 priority level
+	Priority      int     `json:"priority"`   // 0-4 priority level (0=highest)
 	Confidence    float64 `json:"confidence"` // 0.0-1.0 prediction confidence
 	Reason        string  `json:"reason"`     // Human-readable reason
 	SeriesID      string  `json:"series_id,omitempty"`
@@ -147,7 +147,7 @@ func (p *Predictor) OnPlaybackStart(ctx context.Context, mediaID string) error {
 	// Add to viewing history for future analysis
 	p.viewingHistory = append(p.viewingHistory, session)
 
-	// Priority 0: Download currently playing content immediately (if not already cached)
+	// Priority 0: Download currently playing content immediately (if not cached)
 	// This provides instant playback on subsequent access
 	if p.downloadManager != nil {
 		cached, err := p.storage.IsMediaCached(mediaID)
@@ -156,7 +156,7 @@ func (p *Predictor) OnPlaybackStart(ctx context.Context, mediaID string) error {
 				"media_id", mediaID,
 				"priority", 0)
 
-			if err := p.downloadManager.QueueDownload(ctx, mediaID, 0); err != nil {
+			if _, err := p.downloadManager.QueueDownload(ctx, mediaID, 0); err != nil {
 				p.logger.Error("Failed to queue current content download",
 					"media_id", mediaID,
 					"error", err)
@@ -253,7 +253,7 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 
 				// Add to download queue with Priority 1
 				if p.downloadManager != nil {
-					if err := p.downloadManager.QueueDownload(ctx, episode.ID, 1); err != nil {
+					if _, err := p.downloadManager.QueueDownload(ctx, episode.ID, 1); err != nil {
 						p.logger.Error("Failed to queue next episode download",
 							"episode_id", episode.ID,
 							"error", err)
@@ -282,7 +282,7 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 
 				// Add to download queue with Priority 2 (lower priority than next episode)
 				if p.downloadManager != nil {
-					if err := p.downloadManager.QueueDownload(ctx, firstEpisode.ID, 2); err != nil {
+					if _, err := p.downloadManager.QueueDownload(ctx, firstEpisode.ID, 2); err != nil {
 						p.logger.Error("Failed to queue next season episode download",
 							"episode_id", firstEpisode.ID,
 							"error", err)

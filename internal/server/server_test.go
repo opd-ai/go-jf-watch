@@ -166,9 +166,10 @@ func TestQueueEndpoints(t *testing.T) {
 	}
 
 	// Test add to queue
+	priority3 := 3
 	addRequest := AddToQueueRequest{
 		MediaID:  "test-media-123",
-		Priority: 3,
+		Priority: &priority3,
 	}
 
 	requestBody, _ := json.Marshal(addRequest)

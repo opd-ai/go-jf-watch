@@ -14,7 +14,7 @@ The architecture follows clean separation of concerns with a Go backend serving 
 - **Testing**: `testing` (stdlib) + `github.com/stretchr/testify` for assertions
 - **Build/Deploy**: Single binary with embedded assets via `embed` package, Makefile for builds
 - **Frontend**: Video.js player with htmx and Water.css, embedded via `//go:embed`
-- **External APIs**: `github.com/sj14/jellyfin-go` for Jellyfin server integration
+- **External APIs**: Custom HTTP client for Jellyfin server integration with API key authentication
 
 ## Code Assistance Guidelines
 
@@ -67,7 +67,7 @@ This approach enhances testability and flexibility when working with different n
 
 ## Jellyfin-Specific Patterns
 
-- **API Client Wrapping**: Wrap `github.com/sj14/jellyfin-go` with custom client that handles retry logic, session management, and rate limiting. Implement automatic token refresh with fallback to API key authentication.
+- **API Client Implementation**: Custom HTTP client that handles retry logic, session management, and rate limiting using stdlib `net/http`. Implement automatic token refresh with fallback to API key authentication.
 
 - **Media Metadata Caching**: Cache Jellyfin library metadata in BoltDB to reduce API calls. Implement periodic sync (default 4h intervals) with conflict resolution for updated media information.
 

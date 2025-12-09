@@ -645,8 +645,8 @@ func (m *Manager) handleResult(result *DownloadResult) {
 		}
 
 		// Update queue item with error and potentially retry
-		// Use <= to allow 6 retries (attempts 1-6) matching documented pattern: 1s, 2s, 4s, 8s, 16s, 30s
-		if job.RetryCount <= m.config.RetryAttempts {
+		// Use < to allow exactly 6 retries (7 total attempts including initial): 1s, 2s, 4s, 8s, 16s, 30s
+		if job.RetryCount < m.config.RetryAttempts {
 			// Schedule retry with exponential backoff and jitter
 			job.RetryCount++
 			// Exponential backoff base pattern: 1s, 2s, 4s, 8s, 16s, 30s (capped)
@@ -709,13 +709,13 @@ func (m *Manager) handleResult(result *DownloadResult) {
 
 // QueueDownload adds a media item to the download queue with specified priority.
 // This is the primary interface for the prediction engine to queue downloads.
-func (m *Manager) QueueDownload(ctx context.Context, mediaID string, priority int) error {
+func (m *Manager) QueueDownload(ctx context.Context, mediaID string, priority int) (string, error) {
 	m.mu.RLock()
 	running := m.running
 	m.mu.RUnlock()
 
 	if !running {
-		return fmt.Errorf("download manager is not running")
+		return "", fmt.Errorf("download manager is not running")
 	}
 
 	// Create download job for the media item
@@ -733,7 +733,7 @@ func (m *Manager) QueueDownload(ctx context.Context, mediaID string, priority in
 		"priority", priority,
 		"job_id", job.ID)
 
-	return m.AddJob(job)
+	return job.ID, m.AddJob(job)
 }
 
 // QueueStats contains statistics about the download queue and activity.

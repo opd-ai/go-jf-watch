@@ -46,7 +46,7 @@ type QueueItem struct {
 // AddToQueueRequest represents a request to add an item to the download queue.
 type AddToQueueRequest struct {
 	MediaID  string `json:"media_id"`
-	Priority int    `json:"priority,omitempty"`
+	Priority *int   `json:"priority,omitempty"` // Pointer to distinguish unset from zero
 }
 
 // handleHealth provides a simple health check endpoint.
@@ -207,30 +207,38 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 
 	// Set default priority if not specified
 	// Priority 3 = New content matching preferences (documented default for manual requests)
-	if req.Priority == 0 {
-		req.Priority = 3
+	var priority int
+	if req.Priority == nil {
+		priority = 3 // Default for manual requests
+	} else {
+		priority = *req.Priority
+		// Validate priority range
+		if priority < 0 || priority > 4 {
+			s.writeErrorResponse(w, http.StatusBadRequest, "Priority must be between 0 and 4", nil)
+			return
+		}
 	}
 
 	// Add to download manager queue
 	s.logger.Info("Adding item to download queue",
 		"media_id", req.MediaID,
-		"priority", req.Priority)
+		"priority", priority)
 
 	ctx := r.Context()
-	err := s.downloadManager.QueueDownload(ctx, req.MediaID, req.Priority)
+	// Get actual job ID from download manager
+	jobID, err := s.downloadManager.QueueDownload(ctx, req.MediaID, priority)
 	if err != nil {
 		s.writeErrorResponse(w, http.StatusInternalServerError, "Failed to add item to queue", err)
 		return
 	}
 
-	// Return success with queue item info
+	// Return success with queue item info using actual job ID
 	// Queue ID format: {mediaID}-{unix_timestamp} for DELETE operations
-	queueID := fmt.Sprintf("%s-%d", req.MediaID, time.Now().Unix())
 	queueItem := QueueItem{
-		ID:       queueID,
+		ID:       jobID, // Use actual ID from download manager
 		MediaID:  req.MediaID,
 		Title:    s.getMediaTitle(req.MediaID),
-		Priority: req.Priority,
+		Priority: priority,
 		Status:   "queued",
 		Progress: 0,
 		AddedAt:  time.Now(),
@@ -239,7 +247,7 @@ func (s *Server) handleQueueAdd(w http.ResponseWriter, r *http.Request) {
 	s.writeJSONResponse(w, http.StatusCreated, APIResponse{
 		Success: true,
 		Data:    queueItem,
-		Message: fmt.Sprintf("Item added to download queue. Use queue ID '%s' for DELETE operations.", queueID),
+		Message: fmt.Sprintf("Item added to download queue. Use queue ID '%s' for DELETE operations.", jobID),
 	})
 }
 

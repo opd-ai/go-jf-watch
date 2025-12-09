@@ -447,7 +447,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [Jellyfin](https://jellyfin.org/) - The amazing media server that makes this possible
-- [jellyfin-go](https://github.com/sj14/jellyfin-go) - Go client library for Jellyfin API
 - [BoltDB](https://github.com/etcd-io/bbolt) - Embedded database for metadata storage
 - [Chi](https://github.com/go-chi/chi) - Lightweight HTTP router for Go
 
