@@ -30,3 +30,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# go-jf-watch specific files
+go-jf-watch
+go-jf-watch-*
+build/
+cache/
+logs/
+config.yaml
+tmp/
+.air/
+build-errors.log
