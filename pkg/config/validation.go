@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // validate performs comprehensive validation of the configuration.
@@ -127,6 +128,10 @@ func validateDownload(config *DownloadConfig) error {
 		return fmt.Errorf("retry_attempts must be between 0 and 20")
 	}
 
+	if config.RetryDelay < 100*time.Millisecond || config.RetryDelay > 60*time.Second {
+		return fmt.Errorf("retry_delay must be between 100ms and 60s")
+	}
+
 	return nil
 }
 
@@ -204,7 +209,7 @@ func validatePeakHours(peakHours string) error {
 	if peakHours == "" {
 		return nil
 	}
-	
+
 	// Expected format: "06:00-23:00"
 	pattern := `^([0-1][0-9]|2[0-3]):[0-5][0-9]-([0-1][0-9]|2[0-3]):[0-5][0-9]$`
 	matched, err := regexp.MatchString(pattern, peakHours)

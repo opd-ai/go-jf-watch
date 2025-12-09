@@ -53,7 +53,6 @@ func TestAddAndGetDownloadRecord(t *testing.T) {
 		DownloadedAt: time.Now(),
 		LastAccessed: time.Now(),
 		Priority:     1,
-		Checksum:     "abcdef123456",
 	}
 
 	// Test adding record

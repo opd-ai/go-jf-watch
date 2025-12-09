@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/natefinch/atomic"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/time/rate"
 
@@ -68,6 +68,7 @@ type DownloadResult struct {
 	BytesRead   int64
 	Duration    time.Duration
 	Error       error
+	HTTPStatus  int
 	CompletedAt time.Time
 }
 
@@ -313,6 +314,15 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 		return result
 	}
 
+	// Check for partial download to support resume
+	var startByte int64 = 0
+	if fileInfo, err := os.Stat(job.LocalPath + ".partial"); err == nil {
+		startByte = fileInfo.Size()
+		m.logger.Info("Resuming partial download",
+			"job_id", job.ID,
+			"start_byte", startByte)
+	}
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(m.ctx, "GET", job.URL, nil)
 	if err != nil {
@@ -320,7 +330,11 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 		return result
 	}
 
-	// Add range support for resume capability (future enhancement)
+	// Add Range header for resume support
+	if startByte > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startByte))
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Minute, // Long timeout for large files
 	}
@@ -332,7 +346,10 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// Capture HTTP status for retry logic
+	result.HTTPStatus = resp.StatusCode
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		result.Error = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 		m.reportProgress(job.MediaID, 0, "failed", fmt.Sprintf("HTTP error: %d", resp.StatusCode))
 		return result
@@ -364,11 +381,45 @@ func (m *Manager) processJob(job *DownloadJob) *DownloadResult {
 	// Wrap with progress tracking
 	progressReader := io.TeeReader(dataReader, bar)
 
-	// Use atomic write to ensure file integrity
-	err = atomic.WriteFile(job.LocalPath, progressReader)
-	if err != nil {
-		result.Error = fmt.Errorf("failed to write file: %w", err)
-		return result
+	// Write file with resume support
+	if startByte > 0 && resp.StatusCode == http.StatusPartialContent {
+		// Append to existing partial file
+		partialPath := job.LocalPath + ".partial"
+		file, err := os.OpenFile(partialPath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to open partial file: %w", err)
+			return result
+		}
+		_, err = io.Copy(file, progressReader)
+		file.Close()
+		if err != nil {
+			result.Error = fmt.Errorf("failed to write to partial file: %w", err)
+			return result
+		}
+		// Move completed file to final location
+		if err := os.Rename(partialPath, job.LocalPath); err != nil {
+			result.Error = fmt.Errorf("failed to move completed file: %w", err)
+			return result
+		}
+	} else {
+		// Write new file or restart download
+		partialPath := job.LocalPath + ".partial"
+		file, err := os.Create(partialPath)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to create file: %w", err)
+			return result
+		}
+		_, err = io.Copy(file, progressReader)
+		file.Close()
+		if err != nil {
+			result.Error = fmt.Errorf("failed to write file: %w", err)
+			return result
+		}
+		// Use atomic move for final file
+		if err := os.Rename(partialPath, job.LocalPath); err != nil {
+			result.Error = fmt.Errorf("failed to move completed file: %w", err)
+			return result
+		}
 	}
 
 	// Calculate final stats
@@ -567,9 +618,35 @@ func (m *Manager) handleResult(result *DownloadResult) {
 			"error", result.Error,
 			"retry_count", job.RetryCount)
 
+		// Check if error is retryable
+		if !m.isRetryableError(result.Error, result.HTTPStatus) {
+			m.logger.Info("Error is not retryable, marking as failed",
+				"job_id", job.ID,
+				"http_status", result.HTTPStatus,
+				"error", result.Error)
+
+			// Mark as permanently failed
+			queueItem := &storage.QueueItem{
+				ID:           job.ID,
+				MediaID:      job.MediaID,
+				Priority:     job.Priority,
+				URL:          job.URL,
+				LocalPath:    job.LocalPath,
+				CreatedAt:    job.CreatedAt,
+				Status:       "failed",
+				RetryCount:   job.RetryCount,
+				ErrorMessage: result.Error.Error(),
+			}
+			if err := m.storage.UpdateQueueItem(queueItem); err != nil {
+				m.logger.Error("Failed to update failed queue item",
+					"job_id", job.ID, "error", err)
+			}
+			return
+		}
+
 		// Update queue item with error and potentially retry
 		if job.RetryCount < m.config.RetryAttempts {
-			// Schedule retry with exponential backoff
+			// Schedule retry with exponential backoff and jitter
 			job.RetryCount++
 			// Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
 			retryDelay := m.config.RetryDelay * time.Duration(1<<uint(job.RetryCount-1))
@@ -577,7 +654,11 @@ func (m *Manager) handleResult(result *DownloadResult) {
 				retryDelay = 30 * time.Second
 			}
 
-			m.logger.Info("Scheduling download retry with exponential backoff",
+			// Add jitter: ±25% randomization to prevent thundering herd
+			jitter := time.Duration(float64(retryDelay) * (0.75 + 0.5*rand.Float64()))
+			retryDelay = jitter
+
+			m.logger.Info("Scheduling download retry with exponential backoff and jitter",
 				"job_id", job.ID,
 				"retry_count", job.RetryCount,
 				"delay", retryDelay)
@@ -728,4 +809,38 @@ func (m *Manager) RemoveFromQueue(ctx context.Context, queueID string) error {
 
 	m.logger.Info("Removed item from download queue", "queue_id", queueID)
 	return nil
+}
+
+// isRetryableError determines if a download error should trigger a retry.
+// Returns false for permanent failures (404, 403, 410) and true for transient errors.
+func (m *Manager) isRetryableError(err error, httpStatus int) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check HTTP status codes
+	switch httpStatus {
+	case http.StatusNotFound, // 404
+		http.StatusForbidden,    // 403
+		http.StatusGone,         // 410
+		http.StatusUnauthorized: // 401
+		// Permanent failures - don't retry
+		return false
+	case http.StatusTooManyRequests, // 429
+		http.StatusServiceUnavailable, // 503
+		http.StatusBadGateway,         // 502
+		http.StatusGatewayTimeout:     // 504
+		// Temporary service issues - retry with backoff
+		return true
+	case 0:
+		// Network errors (no HTTP status) - retry
+		return true
+	default:
+		// For other 4xx errors, don't retry
+		// For 5xx errors and network issues, retry
+		if httpStatus >= 400 && httpStatus < 500 {
+			return false
+		}
+		return true
+	}
 }

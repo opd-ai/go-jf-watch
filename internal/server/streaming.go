@@ -61,7 +61,7 @@ func (s *Server) handleVideoStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveVideoFile serves a video file with HTTP Range support.
-// Handles partial content requests for efficient streaming and seeking.
+// Uses http.ServeContent for robust range handling including multipart ranges.
 func (s *Server) serveVideoFile(w http.ResponseWriter, r *http.Request, filePath, contentType string) {
 	// Open file
 	file, err := os.Open(filePath)
@@ -78,66 +78,17 @@ func (s *Server) serveVideoFile(w http.ResponseWriter, r *http.Request, filePath
 		return
 	}
 
-	fileSize := fileInfo.Size()
-
-	// Set content type
+	// Detect content type if not provided
 	if contentType == "" {
 		contentType = s.detectContentType(filePath, file)
+		// Reset file position after detection
+		file.Seek(0, io.SeekStart)
 	}
 	w.Header().Set("Content-Type", contentType)
 
-	// Set headers for video streaming
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
-
-	// Handle Range requests
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader == "" {
-		// No range request, serve entire file
-		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
-		w.WriteHeader(http.StatusOK)
-
-		if r.Method != "HEAD" {
-			io.Copy(w, file)
-		}
-		return
-	}
-
-	// Parse Range header
-	ranges, err := s.parseRangeHeader(rangeHeader, fileSize)
-	if err != nil {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
-		s.writeErrorResponse(w, http.StatusRequestedRangeNotSatisfiable, "Invalid range", err)
-		return
-	}
-
-	if len(ranges) != 1 {
-		// Multiple ranges not supported for simplicity
-		s.writeErrorResponse(w, http.StatusRequestedRangeNotSatisfiable, "Multiple ranges not supported", nil)
-		return
-	}
-
-	// Serve single range
-	start, end := ranges[0].start, ranges[0].end
-	contentLength := end - start + 1
-
-	// Set partial content headers
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
-	w.WriteHeader(http.StatusPartialContent)
-
-	if r.Method == "HEAD" {
-		return
-	}
-
-	// Seek to start position and copy range
-	if _, err := file.Seek(start, io.SeekStart); err != nil {
-		s.logger.Error("Failed to seek in video file", "error", err)
-		return
-	}
-
-	// Copy only the requested range
-	io.CopyN(w, file, contentLength)
+	// Use http.ServeContent for robust Range request handling
+	// This handles single ranges, multipart ranges, and proper caching headers
+	http.ServeContent(w, r, filepath.Base(filePath), fileInfo.ModTime(), file)
 }
 
 // handleFallbackStream handles streaming from Jellyfin server when file is not cached.
