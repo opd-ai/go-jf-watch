@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -31,13 +30,13 @@ func TestNew(t *testing.T) {
 
 	// Create temporary storage for testing
 	tmpDir := t.TempDir()
-	storageManager, err := storage.NewManager(tmpDir, 1000, logger)
+	storageManager, err := storage.NewManager(&config.CacheConfig{Directory: tmpDir, MaxSizeGB: 1, MetadataStore: "boltdb"}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create storage manager: %v", err)
 	}
 	defer storageManager.Close()
 
-	server, err := New(cfg, storageManager, logger, "test-version")
+	server, err := New(cfg, storageManager, nil, nil, nil, logger, "test-version")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -338,13 +337,13 @@ func TestServerStartStop(t *testing.T) {
 	}))
 
 	tmpDir := t.TempDir()
-	storageManager, err := storage.NewManager(tmpDir, 1000, logger)
+	storageManager, err := storage.NewManager(&config.CacheConfig{Directory: tmpDir, MaxSizeGB: 1, MetadataStore: "boltdb"}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create storage manager: %v", err)
 	}
 	defer storageManager.Close()
 
-	server, err := New(cfg, storageManager, logger, "test-version")
+	server, err := New(cfg, storageManager, nil, nil, nil, logger, "test-version")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -371,7 +370,7 @@ func createTestServer(t *testing.T) *Server {
 	}))
 
 	tmpDir := t.TempDir()
-	storageManager, err := storage.NewManager(tmpDir, 1000, logger)
+	storageManager, err := storage.NewManager(&config.CacheConfig{Directory: tmpDir, MaxSizeGB: 1, MetadataStore: "boltdb"}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create storage manager: %v", err)
 	}
@@ -381,7 +380,7 @@ func createTestServer(t *testing.T) *Server {
 		storageManager.Close()
 	})
 
-	server, err := New(cfg, storageManager, logger, "test-version")
+	server, err := New(cfg, storageManager, nil, nil, nil, logger, "test-version")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
