@@ -21,13 +21,13 @@ var upgrader = websocket.Upgrader{
 
 // ProgressUpdate represents a real-time progress update message.
 type ProgressUpdate struct {
-	Type      string    `json:"type"`      // download, cache, error
+	Type      string    `json:"type"` // download, cache, error
 	MediaID   string    `json:"media_id"`
 	Title     string    `json:"title,omitempty"`
-	Progress  float64   `json:"progress"`  // 0-100
-	Speed     int64     `json:"speed,omitempty"`     // bytes per second
-	ETA       string    `json:"eta,omitempty"`       // estimated time remaining
-	Status    string    `json:"status"`    // queued, downloading, completed, failed
+	Progress  float64   `json:"progress"`        // 0-100
+	Speed     int64     `json:"speed,omitempty"` // bytes per second
+	ETA       string    `json:"eta,omitempty"`   // estimated time remaining
+	Status    string    `json:"status"`          // queued, downloading, completed, failed
 	Message   string    `json:"message,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -87,7 +87,7 @@ func (c *WebSocketClient) writePump() {
 		case update, ok := <-c.send:
 			// Set write deadline
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			
+
 			if !ok {
 				// Channel closed
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -155,7 +155,7 @@ func (c *WebSocketClient) readPump() {
 // Supports commands like subscribe/unsubscribe from specific media updates.
 func (c *WebSocketClient) handleTextMessage(message []byte) {
 	c.logger.Debug("WebSocket message received", "message", string(message))
-	
+
 	// TODO: Implement client commands when needed
 	// Examples: subscribe to specific media ID, request status update, etc.
 }
@@ -165,14 +165,21 @@ func (c *WebSocketClient) sendInitialStatus() {
 	// Get current cache stats
 	cacheStats, err := c.server.storage.GetCacheStats()
 	if err != nil {
-		c.logger.Error("Failed to get cache stats for WebSocket", "error", err)
+		c.logger.Error("Failed to get cache stats", "error", err)
 		return
+	}
+
+	// Calculate max size from storage stats (StorageStats has MaxSize field)
+	storageStats, err := c.server.storage.GetStorageStats()
+	maxSize := int64(10 * 1024 * 1024 * 1024) // Default 10GB if storage stats unavailable
+	if err == nil && storageStats.MaxSize > 0 {
+		maxSize = storageStats.MaxSize
 	}
 
 	// Send initial status update
 	update := ProgressUpdate{
 		Type:      "status",
-		Progress:  float64(cacheStats.TotalSizeBytes) / float64(c.server.storage.GetMaxSize()) * 100,
+		Progress:  float64(cacheStats.TotalSizeBytes) / float64(maxSize) * 100,
 		Status:    "connected",
 		Message:   "WebSocket connected successfully",
 		Timestamp: time.Now(),
@@ -189,7 +196,7 @@ func (c *WebSocketClient) sendInitialStatus() {
 // This method will be called by the download manager to notify clients of updates.
 func (s *Server) BroadcastProgressUpdate(update ProgressUpdate) {
 	update.Timestamp = time.Now()
-	
+
 	s.wsMutex.RLock()
 	clients := make([]*WebSocketClient, 0, len(s.wsClients))
 	for client := range s.wsClients {
@@ -198,13 +205,13 @@ func (s *Server) BroadcastProgressUpdate(update ProgressUpdate) {
 		}
 	}
 	s.wsMutex.RUnlock()
-	
-	s.logger.Debug("Broadcasting progress update", 
+
+	s.logger.Debug("Broadcasting progress update",
 		"type", update.Type,
 		"media_id", update.MediaID,
 		"progress", update.Progress,
 		"client_count", len(clients))
-	
+
 	// Send to all clients
 	for _, client := range clients {
 		select {
@@ -219,7 +226,7 @@ func (s *Server) BroadcastProgressUpdate(update ProgressUpdate) {
 // Used for targeted updates when clients subscribe to specific media items.
 func (c *WebSocketClient) SendProgress(update ProgressUpdate) {
 	update.Timestamp = time.Now()
-	
+
 	select {
 	case c.send <- update:
 	default:

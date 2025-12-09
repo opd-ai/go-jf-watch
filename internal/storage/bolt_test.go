@@ -1,12 +1,12 @@
 package storage
 
 import (
-	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"log/slog"
 
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
@@ -17,7 +17,7 @@ func TestNewManager(t *testing.T) {
 		Directory:     tempDir,
 		MetadataStore: "boltdb",
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError, // Suppress logs during tests
 	}))
@@ -335,16 +335,16 @@ func TestMediaMetadata(t *testing.T) {
 	defer manager.Close()
 
 	metadata := &MediaMetadata{
-		ID:            "meta-test-1",
-		JellyfinID:    "jellyfin-meta-1",
-		Name:          "Test Movie",
-		Type:          "movie",
-		Overview:      "A test movie for unit testing",
-		Genres:        []string{"Action", "Adventure"},
-		Size:          1024 * 1024 * 1024, // 1GB
-		Container:     "mkv",
-		LastSynced:    time.Now(),
-		ExtraData:     map[string]interface{}{"test": "value"},
+		ID:         "meta-test-1",
+		JellyfinID: "jellyfin-meta-1",
+		Name:       "Test Movie",
+		Type:       "movie",
+		Overview:   "A test movie for unit testing",
+		Genres:     []string{"Action", "Adventure"},
+		Size:       1024 * 1024 * 1024, // 1GB
+		Container:  "mkv",
+		LastSynced: time.Now(),
+		ExtraData:  map[string]interface{}{"test": "value"},
 	}
 
 	err := manager.AddMediaMetadata(metadata)
@@ -472,7 +472,7 @@ func createTestManager(t *testing.T, tempDir string) *Manager {
 		Directory:     tempDir,
 		MetadataStore: "boltdb",
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError, // Suppress logs during tests
 	}))

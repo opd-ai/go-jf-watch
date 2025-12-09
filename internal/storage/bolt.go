@@ -96,6 +96,7 @@ type MediaMetadata struct {
 type StorageStats struct {
 	TotalDownloads  int            `json:"total_downloads"`
 	TotalSize       int64          `json:"total_size_bytes"`
+	MaxSize         int64          `json:"max_size_bytes"`
 	DownloadsByType map[string]int `json:"downloads_by_type"`
 	OldestDownload  time.Time      `json:"oldest_download"`
 	NewestDownload  time.Time      `json:"newest_download"`
@@ -476,6 +477,7 @@ func (m *Manager) GetStorageStats() (*StorageStats, error) {
 	stats := &StorageStats{
 		DownloadsByType: make(map[string]int),
 		LastUpdated:     time.Now(),
+		MaxSize:         int64(m.config.MaxSizeGB) * 1024 * 1024 * 1024, // Convert GB to bytes
 	}
 
 	err := m.db.View(func(tx *bbolt.Tx) error {
@@ -763,9 +765,9 @@ func (m *Manager) GetCachedItemsCount(mediaType string) (int, error) {
 
 		// Count items matching media type
 		c := bucket.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var record DownloadRecord
-			if err := json.Unmarshal(c.Get(), &record); err != nil {
+			if err := json.Unmarshal(v, &record); err != nil {
 				continue // Skip invalid records
 			}
 
@@ -856,16 +858,116 @@ func (m *Manager) GetCachedItems(mediaType string, page, limit int) ([]*CachedIt
 				}
 			}
 
-			items = append(items, item)
-			itemCount++
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cached items: %w", err)
+		items = append(items, item)
+		itemCount++
 	}
 
-	return items, nil
+	return nil
+})
+
+if err != nil {
+	return nil, fmt.Errorf("failed to get cached items: %w", err)
+}
+
+return items, nil
+}
+
+// GetNextQueueItem retrieves the next queued item (lowest priority number, oldest timestamp).
+// Returns nil if no queued items are available.
+func (m *Manager) GetNextQueueItem() (*QueueItem, error) {
+	var nextItem *QueueItem
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketQueue)
+		if bucket == nil {
+			return nil
+		}
+		
+		// Iterate to find the first item with status "queued"
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var item QueueItem
+			if err := json.Unmarshal(v, &item); err != nil {
+				continue
+			}
+			
+			if item.Status == "queued" {
+				nextItem = &item
+				return nil // Found the first queued item
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get next queue item: %w", err)
+	}
+	
+	return nextItem, nil
+}
+
+// UpdateQueueItem updates an existing queue item.
+func (m *Manager) UpdateQueueItem(item *QueueItem) error {
+	if item == nil || item.ID == "" {
+		return fmt.Errorf("invalid queue item: item or ID is empty")
+	}
+	
+	return m.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketQueue)
+		if bucket == nil {
+			return fmt.Errorf("queue bucket not found")
+		}
+		
+		// Find the item by ID
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var existing QueueItem
+			if err := json.Unmarshal(v, &existing); err != nil {
+				continue
+			}
+			
+			if existing.ID == item.ID {
+				// Update the item
+				data, err := json.Marshal(item)
+				if err != nil {
+					return fmt.Errorf("failed to marshal queue item: %w", err)
+				}
+				
+				return bucket.Put(k, data)
+			}
+		}
+		
+		return fmt.Errorf("queue item with ID %s not found", item.ID)
+	})
+}
+
+// GetQueueSize returns the count of items in the queue grouped by priority.
+func (m *Manager) GetQueueSize() (map[int]int, error) {
+	sizes := make(map[int]int)
+	
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketQueue)
+		if bucket == nil {
+			return nil
+		}
+		
+		cursor := bucket.Cursor()
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			var item QueueItem
+			if err := json.Unmarshal(v, &item); err != nil {
+				continue
+			}
+			
+			sizes[item.Priority]++
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get queue sizes: %w", err)
+	}
+	
+	return sizes, nil
 }

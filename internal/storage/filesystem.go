@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,13 +25,13 @@ type FileManager struct {
 
 // FileMetadata represents metadata stored alongside media files.
 type FileMetadata struct {
-	JellyfinID    string    `json:"jellyfin_id"`
-	OriginalName  string    `json:"original_name"`
-	Size          int64     `json:"size"`
-	Checksum      string    `json:"checksum"`
-	DownloadedAt  time.Time `json:"downloaded_at"`
-	ContentType   string    `json:"content_type"`
-	URL           string    `json:"url,omitempty"`
+	JellyfinID   string    `json:"jellyfin_id"`
+	OriginalName string    `json:"original_name"`
+	Size         int64     `json:"size"`
+	Checksum     string    `json:"checksum"`
+	DownloadedAt time.Time `json:"downloaded_at"`
+	ContentType  string    `json:"content_type"`
+	URL          string    `json:"url,omitempty"`
 }
 
 // NewFileManager creates a new file manager with the specified temp directory.
@@ -44,7 +45,7 @@ func NewFileManager(tempDir string, logger *slog.Logger) *FileManager {
 // WriteFileAtomic writes data to a file atomically using a temporary file.
 // This prevents corruption if the write is interrupted.
 func (f *FileManager) WriteFileAtomic(filename string, data []byte) error {
-	f.logger.Debug("Writing file atomically", 
+	f.logger.Debug("Writing file atomically",
 		"filename", filename,
 		"size_bytes", len(data))
 
@@ -52,7 +53,7 @@ func (f *FileManager) WriteFileAtomic(filename string, data []byte) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := atomic.WriteFile(filename, data); err != nil {
+	if err := atomic.WriteFile(filename, bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("atomic write failed for %s: %w", filename, err)
 	}
 
@@ -62,7 +63,7 @@ func (f *FileManager) WriteFileAtomic(filename string, data []byte) error {
 // CopyFileAtomic copies a file atomically from source to destination.
 // It calculates checksums during the copy for integrity verification.
 func (f *FileManager) CopyFileAtomic(src, dst string) (string, error) {
-	f.logger.Debug("Copying file atomically", 
+	f.logger.Debug("Copying file atomically",
 		"src", src,
 		"dst", dst)
 
@@ -79,18 +80,18 @@ func (f *FileManager) CopyFileAtomic(src, dst string) (string, error) {
 
 	// Use atomic.WriteFile with a custom writer that calculates checksum
 	hasher := sha256.New()
-	
+
 	err = atomic.WriteFile(dst, &atomicCopyReader{
 		reader: io.TeeReader(srcFile, hasher),
 		logger: f.logger,
 	})
-	
+
 	if err != nil {
 		return "", fmt.Errorf("atomic copy failed: %w", err)
 	}
 
 	checksum := hex.EncodeToString(hasher.Sum(nil))
-	
+
 	f.logger.Debug("File copied successfully",
 		"dst", dst,
 		"checksum", checksum)
@@ -111,7 +112,7 @@ func (r *atomicCopyReader) Read(p []byte) (n int, err error) {
 // MoveFileAtomic moves a file from source to destination atomically.
 // It first attempts a rename (fastest), falling back to copy+delete if needed.
 func (f *FileManager) MoveFileAtomic(src, dst string) error {
-	f.logger.Debug("Moving file atomically", 
+	f.logger.Debug("Moving file atomically",
 		"src", src,
 		"dst", dst)
 
@@ -177,7 +178,7 @@ func (f *FileManager) VerifyChecksum(filename, expectedChecksum string) (bool, e
 // WriteMetadata writes metadata to a .meta.json file alongside the media file.
 func (f *FileManager) WriteMetadata(mediaPath string, metadata *FileMetadata) error {
 	metadataPath := filepath.Join(filepath.Dir(mediaPath), ".meta.json")
-	
+
 	data, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -189,7 +190,7 @@ func (f *FileManager) WriteMetadata(mediaPath string, metadata *FileMetadata) er
 // ReadMetadata reads metadata from a .meta.json file.
 func (f *FileManager) ReadMetadata(mediaPath string) (*FileMetadata, error) {
 	metadataPath := filepath.Join(filepath.Dir(mediaPath), ".meta.json")
-	
+
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -250,7 +251,7 @@ func (f *FileManager) CleanupTempFiles() error {
 	}
 
 	if cleanedCount > 0 {
-		f.logger.Info("Cleaned up temporary files", 
+		f.logger.Info("Cleaned up temporary files",
 			"count", cleanedCount)
 	}
 
@@ -280,11 +281,11 @@ func (f *FileManager) EnsureDirectory(dir string) error {
 // RemoveFile removes a file and logs the operation.
 func (f *FileManager) RemoveFile(filename string) error {
 	f.logger.Debug("Removing file", "filename", filename)
-	
+
 	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove file %s: %w", filename, err)
 	}
-	
+
 	return nil
 }
 

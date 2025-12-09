@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -100,8 +99,8 @@ func TestDetectContentType(t *testing.T) {
 	server := createTestServer(t)
 
 	tests := []struct {
-		filename    string
-		expected    string
+		filename string
+		expected string
 	}{
 		{"video.mp4", "video/mp4"},
 		{"movie.mkv", "video/x-matroska"},
@@ -119,7 +118,7 @@ func TestDetectContentType(t *testing.T) {
 			// Create a temporary file
 			tmpDir := t.TempDir()
 			filePath := filepath.Join(tmpDir, tt.filename)
-			
+
 			// Write some dummy content
 			content := []byte("dummy video content for testing")
 			if err := os.WriteFile(filePath, content, 0644); err != nil {
@@ -150,7 +149,7 @@ func TestServeVideoFile(t *testing.T) {
 	for i := range testContent {
 		testContent[i] = byte(i % 256)
 	}
-	
+
 	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -199,7 +198,7 @@ func TestServeVideoFile(t *testing.T) {
 			if tt.rangeHeader != "" {
 				req.Header.Set("Range", tt.rangeHeader)
 			}
-			
+
 			w := httptest.NewRecorder()
 
 			server.serveVideoFile(w, req, testFile, "video/mp4")
@@ -276,12 +275,12 @@ func TestVideoStreamingWithRangeRequests(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "large_video.mp4")
 	testContent := make([]byte, 10000) // 10KB test file
-	
+
 	// Fill with identifiable pattern
 	for i := range testContent {
 		testContent[i] = byte(i % 256)
 	}
-	
+
 	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -298,7 +297,7 @@ func TestVideoStreamingWithRangeRequests(t *testing.T) {
 		t.Run(fmt.Sprintf("range_%d", i), func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
 			req.Header.Set("Range", rangeHeader)
-			
+
 			w := httptest.NewRecorder()
 
 			server.serveVideoFile(w, req, testFile, "video/mp4")
@@ -338,7 +337,7 @@ func TestHEADRequestSupport(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test_video.mp4")
 	testContent := make([]byte, 1000)
-	
+
 	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}

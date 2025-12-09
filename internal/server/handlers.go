@@ -21,14 +21,14 @@ type APIResponse struct {
 
 // SystemStatus represents the current system status.
 type SystemStatus struct {
-	Status       string    `json:"status"`
-	Version      string    `json:"version"`
-	Uptime       string    `json:"uptime"`
-	CacheSize    int64     `json:"cache_size_bytes"`
-	CacheItems   int       `json:"cache_items"`
-	QueueLength  int       `json:"queue_length"`
-	ActiveJobs   int       `json:"active_jobs"`
-	LastSync     time.Time `json:"last_sync,omitempty"`
+	Status      string    `json:"status"`
+	Version     string    `json:"version"`
+	Uptime      string    `json:"uptime"`
+	CacheSize   int64     `json:"cache_size_bytes"`
+	CacheItems  int       `json:"cache_items"`
+	QueueLength int       `json:"queue_length"`
+	ActiveJobs  int       `json:"active_jobs"`
+	LastSync    time.Time `json:"last_sync,omitempty"`
 }
 
 // QueueItem represents an item in the download queue.
@@ -52,8 +52,8 @@ type AddToQueueRequest struct {
 // handleHealth provides a simple health check endpoint.
 // Returns 200 OK if the server is running and storage is accessible.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	// Check storage health
-	if err := s.storage.HealthCheck(); err != nil {
+	// Check storage health by attempting to get cache stats
+	if _, err := s.storage.GetCacheStats(); err != nil {
 		s.writeErrorResponse(w, http.StatusServiceUnavailable, "Storage unavailable", err)
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Get queue statistics from download manager
 	queueStats := s.downloadManager.GetQueueStats()
-	
+
 	// Calculate uptime
 	uptime := time.Since(s.startTime)
 
@@ -105,7 +105,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	
+
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit < 1 || limit > 100 {
 		limit = 50
@@ -142,7 +142,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 	// Get total count for pagination
 	totalCount, err := s.storage.GetCachedItemsCount(mediaType)
 	if err != nil {
-		m.logger.Warn("Failed to get total items count", "error", err)
+		s.logger.Warn("Failed to get total items count", "error", err)
 		totalCount = len(libraryItems) // Fallback to current page count
 	}
 
@@ -168,7 +168,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		s.writeErrorResponse(w, http.StatusInternalServerError, "Failed to get queue status", err)
 		return
 	}
-	
+
 	// Convert storage queue items to API response format
 	queueItems := make([]QueueItem, 0, len(queueData))
 	for _, item := range queueData {
@@ -270,21 +270,21 @@ func (s *Server) handleQueueRemove(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	// Return a subset of configuration that's safe to expose to UI
 	settings := map[string]interface{}{
-		"cache.max_size_gb":              500,    // Would come from actual config
+		"cache.max_size_gb":              500, // Would come from actual config
 		"cache.eviction_threshold":       0.85,
 		"download.workers":               3,
-		"download.rate_limit_mbps":      10,
+		"download.rate_limit_mbps":       10,
 		"download.auto_download_current": true,
 		"download.auto_download_next":    true,
 		"download.auto_download_count":   2,
-		"server.port":                   s.config.Port,
-		"server.host":                   s.config.Host,
-		"server.enable_compression":     s.config.EnableCompression,
-		"prediction.enabled":            true,
-		"prediction.sync_interval":      "4h",
-		"prediction.history_days":       30,
-		"ui.theme":                      "auto",
-		"ui.language":                   "en",
+		"server.port":                    s.config.Port,
+		"server.host":                    s.config.Host,
+		"server.enable_compression":      s.config.EnableCompression,
+		"prediction.enabled":             true,
+		"prediction.sync_interval":       "4h",
+		"prediction.history_days":        30,
+		"ui.theme":                       "auto",
+		"ui.language":                    "en",
 	}
 
 	s.writeJSONResponse(w, http.StatusOK, APIResponse{
@@ -297,7 +297,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // In a full implementation, this would persist changes to configuration.
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]interface{}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		s.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON payload", err)
 		return
@@ -317,7 +317,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
 	}

@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -460,7 +459,7 @@ func TestAtomicOperationsConcurrency(t *testing.T) {
 		go func(id int) {
 			testData := []byte(fmt.Sprintf("concurrent test data %d", id))
 			testFile := filepath.Join(tempDir, fmt.Sprintf("concurrent_%d.txt", id))
-			
+
 			err := fm.WriteFileAtomic(testFile, testData)
 			if err != nil {
 				t.Errorf("Concurrent WriteFileAtomic failed for file %d: %v", id, err)
@@ -478,13 +477,13 @@ func TestAtomicOperationsConcurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		testFile := filepath.Join(tempDir, fmt.Sprintf("concurrent_%d.txt", i))
 		expectedData := []byte(fmt.Sprintf("concurrent test data %d", i))
-		
+
 		actualData, err := os.ReadFile(testFile)
 		if err != nil {
 			t.Errorf("Failed to read concurrent file %d: %v", i, err)
 			continue
 		}
-		
+
 		if !bytes.Equal(expectedData, actualData) {
 			t.Errorf("Concurrent file %d has incorrect content", i)
 		}
@@ -496,6 +495,6 @@ func createTestFileManager(t *testing.T, tempDir string) *FileManager {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
-	
+
 	return NewFileManager(tempDir, logger)
 }

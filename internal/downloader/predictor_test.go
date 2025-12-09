@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	
+
 	"github.com/opd-ai/go-jf-watch/internal/storage"
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
@@ -28,7 +28,7 @@ func TestNewPredictor(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	storageManager, err := storage.NewManager(tmpDir, 1000, logger)
+	storageManager, err := storage.NewManager(&config.CacheConfig{Directory: tmpDir, MaxSizeGB: 1, MetadataStore: "boltdb"}, logger)
 	require.NoError(t, err)
 	defer storageManager.Close()
 
@@ -62,7 +62,7 @@ func TestOnPlaybackStart(t *testing.T) {
 					SeasonNumber:  1,
 					EpisodeNumber: 5,
 				}
-				return sm.StoreMediaMetadata(metadata)
+				return sm.AddMediaMetadata(metadata)
 			},
 			wantErr: false,
 		},
@@ -76,7 +76,7 @@ func TestOnPlaybackStart(t *testing.T) {
 					Name:       "Test Movie",
 					Type:       "movie",
 				}
-				return sm.StoreMediaMetadata(metadata)
+				return sm.AddMediaMetadata(metadata)
 			},
 			wantErr: false,
 		},
@@ -220,7 +220,7 @@ func TestAnalyzeWatchingPatterns(t *testing.T) {
 	// Create viewing history showing binge-watching pattern
 	now := time.Now()
 	sameDay := now.Truncate(24 * time.Hour)
-	
+
 	predictor.viewingHistory = []ViewingSession{
 		// Same day, same series - indicates binge watching
 		{
@@ -258,15 +258,15 @@ func TestAnalyzeWatchingPatterns(t *testing.T) {
 	predictor.analyzeWatchingPatterns()
 
 	patterns := predictor.preferences.WatchingPatterns
-	
+
 	// Should detect binge watching (3 episodes same day = 100% binge rate)
 	assert.True(t, patterns.PrefersBingeWatching)
-	
+
 	// Should detect typical viewing time (19-21 hours)
 	assert.Contains(t, patterns.PreferredStartTimes, 19)
 	assert.Contains(t, patterns.PreferredStartTimes, 20)
 	assert.Contains(t, patterns.PreferredStartTimes, 21)
-	
+
 	// Average session duration should be around 45 minutes
 	expectedDuration := 45 * time.Minute
 	assert.True(t, patterns.AverageSessionDuration >= expectedDuration-time.Minute)
@@ -300,7 +300,7 @@ func TestCalculateMetrics(t *testing.T) {
 	now := time.Now()
 	day1 := now.Truncate(24 * time.Hour)
 	day2 := day1.AddDate(0, 0, 1)
-	
+
 	predictor.viewingHistory = []ViewingSession{
 		// Day 1: 2 episodes of series A
 		{
@@ -473,7 +473,7 @@ func TestFilterPredictions(t *testing.T) {
 
 	predictions := []PredictionResult{
 		{MediaID: "high-priority-high-conf", Priority: 1, Confidence: 0.9},
-		{MediaID: "high-priority-low-conf", Priority: 1, Confidence: 0.6},  // Should be filtered out
+		{MediaID: "high-priority-low-conf", Priority: 1, Confidence: 0.6}, // Should be filtered out
 		{MediaID: "low-priority-high-conf", Priority: 3, Confidence: 0.8},
 		{MediaID: "medium-priority-medium-conf", Priority: 2, Confidence: 0.75},
 		{MediaID: "very-low-conf", Priority: 1, Confidence: 0.3}, // Should be filtered out
@@ -538,7 +538,7 @@ func createTestStorage(t *testing.T) *storage.Manager {
 	}
 	storageManager, err := storage.NewManager(storageCfg, logger)
 	require.NoError(t, err)
-	
+
 	// Cleanup will be handled by test cleanup
 	t.Cleanup(func() {
 		storageManager.Close()
@@ -588,7 +588,7 @@ func BenchmarkPredictNext(b *testing.B) {
 	}
 
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := predictor.PredictNext(ctx, "test-user")

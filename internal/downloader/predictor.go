@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/opd-ai/go-jf-watch/internal/storage"
@@ -30,7 +29,7 @@ type Predictor struct {
 	logger          *slog.Logger
 	config          *config.PredictionConfig
 	downloadManager DownloadQueuer
-	
+
 	// Cached analysis data
 	viewingHistory []ViewingSession
 	preferences    UserPreferences
@@ -46,15 +45,15 @@ type DownloadQueuer interface {
 // Used to track user behavior patterns for prediction analysis.
 type ViewingSession struct {
 	MediaID      string    `json:"media_id"`
-	MediaType    string    `json:"media_type"`    // "movie", "episode"
+	MediaType    string    `json:"media_type"` // "movie", "episode"
 	SeriesID     string    `json:"series_id,omitempty"`
 	Season       int       `json:"season,omitempty"`
 	Episode      int       `json:"episode,omitempty"`
 	StartTime    time.Time `json:"start_time"`
 	EndTime      time.Time `json:"end_time"`
-	Duration     int64     `json:"duration"`      // Total duration in seconds
-	WatchedTime  int64     `json:"watched_time"`  // Time actually watched
-	Completed    bool      `json:"completed"`     // Watched >85% of content
+	Duration     int64     `json:"duration"`     // Total duration in seconds
+	WatchedTime  int64     `json:"watched_time"` // Time actually watched
+	Completed    bool      `json:"completed"`    // Watched >85% of content
 	DeviceType   string    `json:"device_type,omitempty"`
 	QualityLevel string    `json:"quality_level,omitempty"`
 }
@@ -62,21 +61,21 @@ type ViewingSession struct {
 // UserPreferences holds analyzed user preferences for prediction.
 // Built from viewing history analysis to understand user patterns.
 type UserPreferences struct {
-	PreferredGenres     []string           `json:"preferred_genres"`
-	PreferredLanguages  []string           `json:"preferred_languages"`
-	WatchingPatterns    WatchingPattern    `json:"watching_patterns"`
-	SeriesBingeRate     float64           `json:"series_binge_rate"`    // Episodes per day
-	PreferredViewTimes  []TimeWindow      `json:"preferred_view_times"` // When user watches
-	CompletionRate      float64           `json:"completion_rate"`      // % of content finished
-	LastUpdated         time.Time         `json:"last_updated"`
+	PreferredGenres    []string        `json:"preferred_genres"`
+	PreferredLanguages []string        `json:"preferred_languages"`
+	WatchingPatterns   WatchingPattern `json:"watching_patterns"`
+	SeriesBingeRate    float64         `json:"series_binge_rate"`    // Episodes per day
+	PreferredViewTimes []TimeWindow    `json:"preferred_view_times"` // When user watches
+	CompletionRate     float64         `json:"completion_rate"`      // % of content finished
+	LastUpdated        time.Time       `json:"last_updated"`
 }
 
 // WatchingPattern describes user viewing behavior patterns.
 type WatchingPattern struct {
-	AverageSessionDuration time.Duration `json:"average_session_duration"`
-	PrefersBingeWatching   bool         `json:"prefers_binge_watching"`
+	AverageSessionDuration time.Duration  `json:"average_session_duration"`
+	PrefersBingeWatching   bool           `json:"prefers_binge_watching"`
 	TypicalViewingDays     []time.Weekday `json:"typical_viewing_days"`
-	PreferredStartTimes    []int         `json:"preferred_start_times"` // Hours 0-23
+	PreferredStartTimes    []int          `json:"preferred_start_times"` // Hours 0-23
 }
 
 // TimeWindow represents a time period when user typically watches content.
@@ -88,15 +87,15 @@ type TimeWindow struct {
 
 // PredictionResult contains a predicted download recommendation.
 type PredictionResult struct {
-	MediaID     string  `json:"media_id"`
-	Priority    int     `json:"priority"`     // 0-5 priority level
-	Confidence  float64 `json:"confidence"`   // 0.0-1.0 prediction confidence
-	Reason      string  `json:"reason"`       // Human-readable reason
-	SeriesID    string  `json:"series_id,omitempty"`
-	Season      int     `json:"season,omitempty"`
-	Episode     int     `json:"episode,omitempty"`
-	MediaType   string  `json:"media_type"`
-	EstimatedSize int64 `json:"estimated_size,omitempty"`
+	MediaID       string  `json:"media_id"`
+	Priority      int     `json:"priority"`   // 0-5 priority level
+	Confidence    float64 `json:"confidence"` // 0.0-1.0 prediction confidence
+	Reason        string  `json:"reason"`     // Human-readable reason
+	SeriesID      string  `json:"series_id,omitempty"`
+	Season        int     `json:"season,omitempty"`
+	Episode       int     `json:"episode,omitempty"`
+	MediaType     string  `json:"media_type"`
+	EstimatedSize int64   `json:"estimated_size,omitempty"`
 }
 
 // NewPredictor creates a new viewing pattern predictor instance.
@@ -107,7 +106,7 @@ func NewPredictor(storage *storage.Manager, config *config.PredictionConfig, log
 		logger:         logger,
 		config:         config,
 		viewingHistory: make([]ViewingSession, 0),
-		preferences:    UserPreferences{
+		preferences: UserPreferences{
 			PreferredGenres:    make([]string, 0),
 			PreferredLanguages: make([]string, 0),
 			PreferredViewTimes: make([]TimeWindow, 0),
@@ -123,7 +122,7 @@ func (p *Predictor) SetDownloadManager(dm DownloadQueuer) {
 // OnPlaybackStart handles immediate prediction when user starts watching content.
 // This triggers Priority 0 (currently playing) download and queues next episode.
 func (p *Predictor) OnPlaybackStart(ctx context.Context, mediaID string) error {
-	p.logger.Info("Playback started, triggering immediate predictions", 
+	p.logger.Info("Playback started, triggering immediate predictions",
 		"media_id", mediaID)
 
 	// Record viewing session start
@@ -195,7 +194,7 @@ func (p *Predictor) PredictNext(ctx context.Context, userID string) ([]Predictio
 	// Filter by confidence threshold and limit results
 	predictions = p.filterPredictions(predictions)
 
-	p.logger.Info("Prediction analysis complete", 
+	p.logger.Info("Prediction analysis complete",
 		"total_predictions", len(predictions),
 		"user_id", userID)
 
@@ -205,9 +204,9 @@ func (p *Predictor) PredictNext(ctx context.Context, userID string) ([]Predictio
 // predictNextEpisodes predicts the next episode(s) in a series after playback starts.
 // This is called immediately when user starts watching to queue Priority 1 content.
 func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, currentSeason, currentEpisode int) error {
-	p.logger.Debug("Predicting next episodes", 
-		"series_id", seriesID, 
-		"season", currentSeason, 
+	p.logger.Debug("Predicting next episodes",
+		"series_id", seriesID,
+		"season", currentSeason,
 		"episode", currentEpisode)
 
 	// Get series information from storage
@@ -231,7 +230,7 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 					"episode_id", episode.ID,
 					"season", episode.Season,
 					"episode", episode.Episode)
-				
+
 				// Add to download queue with Priority 1
 				if p.downloadManager != nil {
 					if err := p.downloadManager.QueueDownload(ctx, episode.ID, 1); err != nil {
@@ -260,7 +259,7 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 					"episode_id", firstEpisode.ID,
 					"season", firstEpisode.Season,
 					"episode", firstEpisode.Episode)
-					
+
 				// Add to download queue with Priority 2 (lower priority than next episode)
 				if p.downloadManager != nil {
 					if err := p.downloadManager.QueueDownload(ctx, firstEpisode.ID, 2); err != nil {
@@ -280,29 +279,29 @@ func (p *Predictor) predictNextEpisodes(ctx context.Context, seriesID string, cu
 // Returns Priority 1 predictions for next episodes in partially watched series.
 func (p *Predictor) predictContinueWatching() []PredictionResult {
 	var predictions []PredictionResult
-	
+
 	// Group viewing history by series
 	seriesProgress := make(map[string]ViewingProgress)
-	
+
 	for _, session := range p.viewingHistory {
 		if session.MediaType == "episode" && session.SeriesID != "" {
 			progress := seriesProgress[session.SeriesID]
 			progress.SeriesID = session.SeriesID
 			progress.LastWatched = session.StartTime
-			
+
 			// Track latest episode watched
-			if session.Season > progress.LastSeason || 
-			   (session.Season == progress.LastSeason && session.Episode > progress.LastEpisode) {
+			if session.Season > progress.LastSeason ||
+				(session.Season == progress.LastSeason && session.Episode > progress.LastEpisode) {
 				progress.LastSeason = session.Season
 				progress.LastEpisode = session.Episode
 				progress.LastMediaID = session.MediaID
 			}
-			
+
 			progress.TotalWatched++
 			if session.Completed {
 				progress.CompletedEpisodes++
 			}
-			
+
 			seriesProgress[session.SeriesID] = progress
 		}
 	}
@@ -396,10 +395,27 @@ func (p *Predictor) refreshViewingHistory(ctx context.Context, userID string) er
 		return fmt.Errorf("failed to get viewing history: %w", err)
 	}
 
-	p.viewingHistory = history
+	// Convert storage.ViewingSession to local ViewingSession
+	p.viewingHistory = make([]ViewingSession, len(history))
+	for i, h := range history {
+		p.viewingHistory[i] = ViewingSession{
+			MediaID:      h.MediaID,
+			MediaType:    h.MediaType,
+			SeriesID:     h.SeriesID,
+			Season:       h.Season,
+			Episode:      h.Episode,
+			StartTime:    h.StartTime,
+			EndTime:      h.EndTime,
+			Duration:     h.Duration,
+			WatchedTime:  h.WatchedTime,
+			Completed:    h.Completed,
+			DeviceType:   h.DeviceType,
+			QualityLevel: h.QualityLevel,
+		}
+	}
 	p.lastSync = time.Now()
 
-	p.logger.Info("Viewing history refreshed", 
+	p.logger.Info("Viewing history refreshed",
 		"sessions_loaded", len(history),
 		"user_id", userID)
 
@@ -452,7 +468,7 @@ func (p *Predictor) analyzeWatchingPatterns() {
 		if i > 0 {
 			prevSession := p.viewingHistory[i-1]
 			if session.SeriesID == prevSession.SeriesID &&
-			   session.StartTime.Format("2006-01-02") == prevSession.StartTime.Format("2006-01-02") {
+				session.StartTime.Format("2006-01-02") == prevSession.StartTime.Format("2006-01-02") {
 				bingeCount++
 			}
 		}
@@ -488,12 +504,12 @@ func (p *Predictor) analyzeGenrePreferences() {
 		genre string
 		count int
 	}
-	
+
 	var scores []genreScore
 	for genre, count := range genreCount {
 		scores = append(scores, genreScore{genre, count})
 	}
-	
+
 	sort.Slice(scores, func(i, j int) bool {
 		return scores[i].count > scores[j].count
 	})
@@ -520,7 +536,7 @@ func (p *Predictor) analyzeViewingTimes() {
 	// Find peak viewing times
 	p.preferences.WatchingPatterns.PreferredStartTimes = make([]int, 0)
 	avgCount := len(p.viewingHistory) / 24
-	
+
 	for hour, count := range hourCount {
 		if count > avgCount*2 { // Significantly above average
 			p.preferences.WatchingPatterns.PreferredStartTimes = append(p.preferences.WatchingPatterns.PreferredStartTimes, hour)

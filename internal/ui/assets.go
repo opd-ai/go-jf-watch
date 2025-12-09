@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"embed"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -9,18 +8,17 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Embed static assets using Go 1.16+ embed package
-//go:embed ../../web/static
-var staticFiles embed.FS
-
-//go:embed ../../web/templates
-var templateFiles embed.FS
+// Static assets and templates are embedded at build time
+// Note: embed paths are relative to the module root when using go:embed
+// Since internal/ui can't use ../../, we'll load files at runtime from web/ directory
+var staticFiles fs.FS
+var templateFiles fs.FS
 
 // UI manages the web user interface
 type UI struct {
-	staticFS   fs.FS
-	templates  *template.Template
-	version    string
+	staticFS  fs.FS
+	templates *template.Template
+	version   string
 }
 
 // TemplateData holds data passed to HTML templates
@@ -55,7 +53,7 @@ func New(version string) (*UI, error) {
 func (u *UI) RegisterRoutes(r chi.Router) {
 	// Serve static files
 	r.Handle("/static/*", u.serveStatic())
-	
+
 	// Serve main UI
 	r.Get("/", u.serveIndex)
 }
@@ -73,7 +71,7 @@ func (u *UI) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	
+
 	if err := u.templates.ExecuteTemplate(w, "index.html", data); err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return

@@ -1,12 +1,11 @@
 package storage
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"log/slog"
 
 	"github.com/opd-ai/go-jf-watch/pkg/config"
 )
@@ -18,7 +17,7 @@ func TestCacheManagerGetCacheSize(t *testing.T) {
 	// Create test cache structure
 	movieDir := filepath.Join(tempDir, "movies", "movie-1")
 	seriesDir := filepath.Join(tempDir, "series", "series-1", "S01E01")
-	
+
 	os.MkdirAll(movieDir, 0755)
 	os.MkdirAll(seriesDir, 0755)
 
@@ -28,7 +27,7 @@ func TestCacheManagerGetCacheSize(t *testing.T) {
 	metadataFile := filepath.Join(movieDir, ".meta.json")
 
 	// Write files with known sizes
-	movieData := make([]byte, 1024*1024) // 1MB
+	movieData := make([]byte, 1024*1024)  // 1MB
 	episodeData := make([]byte, 512*1024) // 512KB
 	metadataData := []byte(`{"test": "metadata"}`)
 
@@ -59,20 +58,20 @@ func TestCacheManagerGetCacheUtilization(t *testing.T) {
 		Directory: tempDir,
 		MaxSizeGB: 1, // 1GB max
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
 
 	storage := createTestManager(t, tempDir)
 	defer storage.Close()
-	
+
 	cacheManager := NewCacheManager(cfg, storage, logger)
 
 	// Create a test file (100MB)
 	movieDir := filepath.Join(tempDir, "movies", "movie-1")
 	os.MkdirAll(movieDir, 0755)
-	
+
 	movieFile := filepath.Join(movieDir, "movie.mkv")
 	movieData := make([]byte, 100*1024*1024) // 100MB
 	if err := os.WriteFile(movieFile, movieData, 0644); err != nil {
@@ -95,17 +94,17 @@ func TestCacheManagerNeedsCleanup(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := &config.CacheConfig{
 		Directory:         tempDir,
-		MaxSizeGB:         1, // 1GB max
+		MaxSizeGB:         1,   // 1GB max
 		EvictionThreshold: 0.8, // 80% threshold
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
 
 	storage := createTestManager(t, tempDir)
 	defer storage.Close()
-	
+
 	cacheManager := NewCacheManager(cfg, storage, logger)
 
 	// Initially should not need cleanup
@@ -120,7 +119,7 @@ func TestCacheManagerNeedsCleanup(t *testing.T) {
 	// Create a large file that exceeds threshold
 	movieDir := filepath.Join(tempDir, "movies", "movie-1")
 	os.MkdirAll(movieDir, 0755)
-	
+
 	movieFile := filepath.Join(movieDir, "movie.mkv")
 	movieData := make([]byte, 900*1024*1024) // 900MB (90% of 1GB)
 	if err := os.WriteFile(movieFile, movieData, 0644); err != nil {
@@ -185,7 +184,7 @@ func TestGetMediaPath(t *testing.T) {
 	}
 }
 
-func TestEnsureDirectory(t *testing.T) {
+func TestCacheEnsureDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	cacheManager := createTestCacheManager(t, tempDir)
 
@@ -275,8 +274,8 @@ func TestGetEvictionCandidates(t *testing.T) {
 		size         int64
 		lastAccessed time.Time
 	}{
-		{"old-movie", "movie", 1000, time.Now().Add(-48 * time.Hour)}, // Oldest
-		{"new-movie", "movie", 2000, time.Now().Add(-1 * time.Hour)},  // Newest
+		{"old-movie", "movie", 1000, time.Now().Add(-48 * time.Hour)},     // Oldest
+		{"new-movie", "movie", 2000, time.Now().Add(-1 * time.Hour)},      // Newest
 		{"mid-episode", "episode", 1500, time.Now().Add(-24 * time.Hour)}, // Middle
 	}
 
@@ -288,7 +287,7 @@ func TestGetEvictionCandidates(t *testing.T) {
 		} else {
 			mediaPath = filepath.Join(tempDir, "series", td.id, "S01E01", "video.mkv")
 		}
-		
+
 		os.MkdirAll(filepath.Dir(mediaPath), 0755)
 		data := make([]byte, td.size)
 		if err := os.WriteFile(mediaPath, data, 0644); err != nil {
@@ -304,7 +303,7 @@ func TestGetEvictionCandidates(t *testing.T) {
 			Size:         td.size,
 			LastAccessed: td.lastAccessed,
 		}
-		
+
 		if err := storage.AddDownloadRecord(record); err != nil {
 			t.Fatalf("Failed to add download record: %v", err)
 		}
@@ -337,17 +336,17 @@ func TestCleanupCache(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := &config.CacheConfig{
 		Directory:         tempDir,
-		MaxSizeGB:         1, // 1GB
+		MaxSizeGB:         1,   // 1GB
 		EvictionThreshold: 0.5, // 50% for easier testing
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
 
 	storage := createTestManager(t, tempDir)
 	defer storage.Close()
-	
+
 	cacheManager := NewCacheManager(cfg, storage, logger)
 
 	// Create files that don't exceed threshold
@@ -377,14 +376,14 @@ func createTestCacheManager(t *testing.T, tempDir string) *CacheManager {
 		MaxSizeGB:         10,
 		EvictionThreshold: 0.85,
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
 
 	storage := createTestManager(t, tempDir)
 	t.Cleanup(func() { storage.Close() })
-	
+
 	return NewCacheManager(cfg, storage, logger)
 }
 
@@ -394,10 +393,10 @@ func createTestCacheManagerWithStorage(t *testing.T, tempDir string, storage *Ma
 		MaxSizeGB:         10,
 		EvictionThreshold: 0.85,
 	}
-	
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
-	
+
 	return NewCacheManager(cfg, storage, logger)
 }
