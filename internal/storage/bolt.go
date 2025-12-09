@@ -858,31 +858,31 @@ func (m *Manager) GetCachedItems(mediaType string, page, limit int) ([]*CachedIt
 				}
 			}
 
-		items = append(items, item)
-		itemCount++
+			items = append(items, item)
+			itemCount++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached items: %w", err)
 	}
 
-	return nil
-})
-
-if err != nil {
-	return nil, fmt.Errorf("failed to get cached items: %w", err)
-}
-
-return items, nil
+	return items, nil
 }
 
 // GetNextQueueItem retrieves the next queued item (lowest priority number, oldest timestamp).
 // Returns nil if no queued items are available.
 func (m *Manager) GetNextQueueItem() (*QueueItem, error) {
 	var nextItem *QueueItem
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
 		if bucket == nil {
 			return nil
 		}
-		
+
 		// Iterate to find the first item with status "queued"
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
@@ -890,20 +890,20 @@ func (m *Manager) GetNextQueueItem() (*QueueItem, error) {
 			if err := json.Unmarshal(v, &item); err != nil {
 				continue
 			}
-			
+
 			if item.Status == "queued" {
 				nextItem = &item
 				return nil // Found the first queued item
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get next queue item: %w", err)
 	}
-	
+
 	return nextItem, nil
 }
 
@@ -912,13 +912,13 @@ func (m *Manager) UpdateQueueItem(item *QueueItem) error {
 	if item == nil || item.ID == "" {
 		return fmt.Errorf("invalid queue item: item or ID is empty")
 	}
-	
+
 	return m.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
 		if bucket == nil {
 			return fmt.Errorf("queue bucket not found")
 		}
-		
+
 		// Find the item by ID
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
@@ -926,18 +926,18 @@ func (m *Manager) UpdateQueueItem(item *QueueItem) error {
 			if err := json.Unmarshal(v, &existing); err != nil {
 				continue
 			}
-			
+
 			if existing.ID == item.ID {
 				// Update the item
 				data, err := json.Marshal(item)
 				if err != nil {
 					return fmt.Errorf("failed to marshal queue item: %w", err)
 				}
-				
+
 				return bucket.Put(k, data)
 			}
 		}
-		
+
 		return fmt.Errorf("queue item with ID %s not found", item.ID)
 	})
 }
@@ -945,29 +945,29 @@ func (m *Manager) UpdateQueueItem(item *QueueItem) error {
 // GetQueueSize returns the count of items in the queue grouped by priority.
 func (m *Manager) GetQueueSize() (map[int]int, error) {
 	sizes := make(map[int]int)
-	
+
 	err := m.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketQueue)
 		if bucket == nil {
 			return nil
 		}
-		
+
 		cursor := bucket.Cursor()
 		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 			var item QueueItem
 			if err := json.Unmarshal(v, &item); err != nil {
 				continue
 			}
-			
+
 			sizes[item.Priority]++
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get queue sizes: %w", err)
 	}
-	
+
 	return sizes, nil
 }
