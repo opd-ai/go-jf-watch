@@ -97,13 +97,15 @@ func New(cfg *config.DownloadConfig, storage *storage.Manager, logger *slog.Logg
 
 // Start begins processing downloads with the configured number of workers.
 // Returns an error if the manager is already running.
-func (m *Manager) Start() error {
+func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
 	if m.running {
 		return fmt.Errorf("download manager is already running")
 	}
+	
+	m.ctx, m.cancel = context.WithCancel(ctx)
 	
 	m.logger.Info("Starting download manager",
 		"workers", m.workers,
@@ -487,6 +489,71 @@ func (m *Manager) handleResult(result *DownloadResult) {
 					"job_id", job.ID, "error", err)
 			}
 		}
+	}
+}
+
+// QueueDownload adds a media item to the download queue with specified priority.
+// This is the primary interface for the prediction engine to queue downloads.
+func (m *Manager) QueueDownload(ctx context.Context, mediaID string, priority int) error {
+	m.mu.RLock()
+	running := m.running
+	m.mu.RUnlock()
+	
+	if !running {
+		return fmt.Errorf("download manager is not running")
+	}
+	
+	// Create download job for the media item
+	// Note: URL and other details would need to be fetched from Jellyfin API
+	job := &DownloadJob{
+		ID:        fmt.Sprintf("%s-%d", mediaID, time.Now().Unix()),
+		MediaID:   mediaID,
+		Priority:  priority,
+		CreatedAt: time.Now(),
+		// URL and LocalPath would be populated by Jellyfin API integration
+	}
+	
+	m.logger.Debug("Queuing download", 
+		"media_id", mediaID,
+		"priority", priority,
+		"job_id", job.ID)
+	
+	return m.AddJob(job)
+}
+
+// QueueStats contains statistics about the download queue and activity.
+type QueueStats struct {
+	QueueSize       int `json:"queue_size"`
+	ActiveDownloads int `json:"active_downloads"`
+	CompletedToday  int `json:"completed_today"`
+	FailedToday     int `json:"failed_today"`
+}
+
+// GetQueueStats returns current download queue statistics for monitoring.
+func (m *Manager) GetQueueStats() QueueStats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
+	// Get queue sizes from storage
+	queueSizes, err := m.storage.GetQueueSize()
+	if err != nil {
+		m.logger.Warn("Failed to get queue sizes", "error", err)
+		queueSizes = make(map[int]int)
+	}
+	
+	// Calculate total queue size
+	totalQueue := 0
+	for _, size := range queueSizes {
+		totalQueue += size
+	}
+	
+	// For now, return basic statistics
+	// In a full implementation, we'd track completed/failed counts
+	return QueueStats{
+		QueueSize:       totalQueue,
+		ActiveDownloads: len(m.jobs), // Approximate active downloads
+		CompletedToday:  0, // Would track in storage
+		FailedToday:     0, // Would track in storage
 	}
 }
 
